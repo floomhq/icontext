@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# icontext pre-commit hook: gitleaks secret scanner
+#
+# Scans staged changes for secrets. Blocks commit on finding.
+# Config: <vault>/.gitleaks.toml (symlinked from icontext/config/gitleaks.toml on install)
+
+set -euo pipefail
+
+ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
+CONFIG="${ICONTEXT_CONFIG:-$ICONTEXT_ROOT/config/gitleaks.toml}"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "icontext: gitleaks not installed. Run: brew install gitleaks"
+    exit 1
+fi
+
+if [ ! -f "$CONFIG" ]; then
+    echo "icontext: config not found at $CONFIG"
+    exit 1
+fi
+
+if ! gitleaks protect --staged --redact --config="$CONFIG" --no-banner; then
+    echo ""
+    echo "icontext: secrets detected in staged changes. Commit blocked."
+    echo "Options:"
+    echo "  1. Remove the secret, stage the cleaned file, recommit"
+    echo "  2. If false positive: add pattern to $CONFIG allowlist"
+    echo "  3. Emergency bypass (logged): git commit --no-verify"
+    exit 1
+fi

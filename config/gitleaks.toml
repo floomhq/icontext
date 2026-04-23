@@ -1,0 +1,26 @@
+# icontext gitleaks config
+# Extends the gitleaks default ruleset with vault-specific allowlists.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "icontext: paths and patterns that are OK"
+
+paths = [
+    '''\.git/''',
+    '''_archive/''',
+    '''tests/fixtures/''',
+    '''node_modules/''',
+    # CLAUDE.md and README.md contain references to key NAMES but no real secrets
+    # If a real secret slips into these, the content-level regex rules still catch it
+]
+
+regexes = [
+    # Common test/fixture keys
+    '''EXAMPLE_[A-Z_]+''',
+    '''AKIAIOSFODNN7EXAMPLE''',
+    '''sk_test_[a-zA-Z0-9]+''',
+    # Gitleaks default fingerprints for known-fake keys
+    '''fake[-_]?(key|token|secret|password)''',
+]
