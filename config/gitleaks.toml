@@ -12,6 +12,10 @@ paths = [
     '''_archive/''',
     '''tests/fixtures/''',
     '''node_modules/''',
+    # vault/ is git-crypt encrypted at rest — secrets there are expected and protected
+    '''vault/''',
+    # gitleaks baseline report is redacted and safe to track
+    '''gitleaks-baseline-.*\.(md|json)$''',
     # CLAUDE.md and README.md contain references to key NAMES but no real secrets
     # If a real secret slips into these, the content-level regex rules still catch it
 ]
