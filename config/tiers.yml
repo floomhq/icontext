@@ -11,6 +11,8 @@ allowed_unclassified_paths:
   - .gitleaks.toml
   - .icontext-installed
   - .icontext-tiers.yml
+  - AGENTS.md
+  - CLAUDE.md
   - README.md
   - .github/
   - .icontext/

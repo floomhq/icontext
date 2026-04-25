@@ -41,6 +41,8 @@ class IcontextClassifierTests(unittest.TestCase):
         tiers, enforce, allowed_unclassified = load_config(config)
 
         self.assertTrue(enforce)
+        self.assertIn("AGENTS.md", allowed_unclassified)
+        self.assertIn("CLAUDE.md", allowed_unclassified)
         self.assertIn("README.md", allowed_unclassified)
         self.assertEqual(tier_for_path("vault/secrets.md", tiers), "vault")
         self.assertEqual(tier_for_path("shareable/post.md", tiers), "shareable")
