@@ -35,14 +35,16 @@ def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"true", "yes", "1", "on"}
 
 
-def load_config(path: Path) -> tuple[dict[str, tuple[int, tuple[str, ...]]], bool]:
+def load_config(path: Path) -> tuple[dict[str, tuple[int, tuple[str, ...]]], bool, tuple[str, ...]]:
     tiers: dict[str, tuple[int, tuple[str, ...]]] = {}
     enforce_unclassified = False
+    allowed_unclassified: list[str] = []
     current_tier: str | None = None
     current_rank: int | None = None
     current_paths: list[str] = []
     in_tiers = False
     in_paths = False
+    in_allowed_unclassified = False
 
     if not path.exists():
         raise FileNotFoundError(f"tier config not found: {path}")
@@ -67,10 +69,20 @@ def load_config(path: Path) -> tuple[dict[str, tuple[int, tuple[str, ...]]], boo
 
         if indent == 0 and stripped.startswith("enforce_unclassified_paths:"):
             enforce_unclassified = _parse_bool(stripped.split(":", 1)[1])
+            in_allowed_unclassified = False
+            continue
+
+        if indent == 0 and stripped == "allowed_unclassified_paths:":
+            in_allowed_unclassified = True
+            continue
+
+        if in_allowed_unclassified and indent == 2 and stripped.startswith("- "):
+            allowed_unclassified.append(stripped[2:].strip().strip('"').strip("'"))
             continue
 
         if indent == 0 and stripped == "tiers:":
             in_tiers = True
+            in_allowed_unclassified = False
             continue
 
         if in_tiers and indent == 2 and stripped.endswith(":"):
@@ -97,7 +109,18 @@ def load_config(path: Path) -> tuple[dict[str, tuple[int, tuple[str, ...]]], boo
     if not tiers:
         raise ValueError(f"no tiers configured in {path}")
 
-    return tiers, enforce_unclassified
+    return tiers, enforce_unclassified, tuple(allowed_unclassified)
+
+
+def is_allowed_unclassified(path: str, allowed_paths: tuple[str, ...]) -> bool:
+    normalized = path.replace("\\", "/")
+    for allowed in allowed_paths:
+        if allowed.endswith("/"):
+            if normalized.startswith(allowed):
+                return True
+        elif normalized == allowed:
+            return True
+    return False
 
 
 def tier_for_path(path: str, tiers: dict[str, tuple[int, tuple[str, ...]]]) -> str | None:
@@ -140,7 +163,7 @@ def tracked_files(repo: Path) -> list[str]:
 
 
 def check_paths(repo: Path, config: Path, paths: list[str]) -> int:
-    tiers, enforce_unclassified = load_config(config)
+    tiers, enforce_unclassified, allowed_unclassified = load_config(config)
     failures: list[str] = []
     warnings: list[str] = []
     skipped_unclassified = 0
@@ -152,6 +175,8 @@ def check_paths(repo: Path, config: Path, paths: list[str]) -> int:
         placement = tier_for_path(rel_path, tiers)
         classification = classify(rel_path, repo)
         if placement is None:
+            if is_allowed_unclassified(rel_path, allowed_unclassified):
+                continue
             if enforce_unclassified:
                 failures.append(
                     f"{rel_path}: classified {classification.tier} but path is outside "

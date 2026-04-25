@@ -38,9 +38,10 @@ class IcontextClassifierTests(unittest.TestCase):
 
     def test_tier_config_parser_and_matching(self):
         config = ROOT / "config" / "tiers.yml"
-        tiers, enforce = load_config(config)
+        tiers, enforce, allowed_unclassified = load_config(config)
 
-        self.assertFalse(enforce)
+        self.assertTrue(enforce)
+        self.assertIn("README.md", allowed_unclassified)
         self.assertEqual(tier_for_path("vault/secrets.md", tiers), "vault")
         self.assertEqual(tier_for_path("shareable/post.md", tiers), "shareable")
         self.assertIsNone(tier_for_path("legacy/post.md", tiers))
@@ -57,6 +58,16 @@ class IcontextClassifierTests(unittest.TestCase):
                 status = check_paths(
                     root, ROOT / "config" / "tiers.yml", ["shareable/note.md"]
                 )
+
+        self.assertEqual(status, 1)
+
+    def test_check_blocks_unclassified_path_when_enforced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "legacy.md").write_text("plain note\n", encoding="utf-8")
+
+            with redirect_stderr(StringIO()):
+                status = check_paths(root, ROOT / "config" / "tiers.yml", ["legacy.md"])
 
         self.assertEqual(status, 1)
 

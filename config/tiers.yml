@@ -4,7 +4,16 @@
 # enforce_unclassified_paths=false keeps legacy repositories usable while they
 # are being migrated into shareable/internal/vault.
 
-enforce_unclassified_paths: false
+enforce_unclassified_paths: true
+allowed_unclassified_paths:
+  - .gitattributes
+  - .gitignore
+  - .gitleaks.toml
+  - .icontext-installed
+  - .icontext-tiers.yml
+  - README.md
+  - .github/
+  - .icontext/
 
 tiers:
   shareable:
@@ -19,4 +28,3 @@ tiers:
     rank: 2
     paths:
       - vault/
-
