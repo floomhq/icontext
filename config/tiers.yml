@@ -1,0 +1,22 @@
+# icontext sensitivity tiers.
+#
+# rank: higher means more sensitive.
+# enforce_unclassified_paths=false keeps legacy repositories usable while they
+# are being migrated into shareable/internal/vault.
+
+enforce_unclassified_paths: false
+
+tiers:
+  shareable:
+    rank: 0
+    paths:
+      - shareable/
+  internal:
+    rank: 1
+    paths:
+      - internal/
+  vault:
+    rank: 2
+    paths:
+      - vault/
+

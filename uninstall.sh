@@ -29,6 +29,11 @@ for f in .gitleaks.toml .icontext-tiers.yml .icontext-installed; do
     fi
 done
 
+if [ -d "$VAULT/.icontext" ]; then
+    rm -rf "$VAULT/.icontext"
+    echo "  - removed .icontext"
+fi
+
 if [ -f "$VAULT/.github/workflows/icontext-sensitivity.yml" ]; then
     rm "$VAULT/.github/workflows/icontext-sensitivity.yml"
     echo "  - removed .github/workflows/icontext-sensitivity.yml"

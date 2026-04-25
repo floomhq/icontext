@@ -2,12 +2,16 @@
 # icontext pre-commit hook: gitleaks secret scanner
 #
 # Scans staged changes for secrets. Blocks commit on finding.
-# Config: <vault>/.gitleaks.toml (symlinked from icontext/config/gitleaks.toml on install)
+# Config: <vault>/.gitleaks.toml, falling back to icontext/config/gitleaks.toml.
 
 set -euo pipefail
 
 ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
-CONFIG="${ICONTEXT_CONFIG:-$ICONTEXT_ROOT/config/gitleaks.toml}"
+CONFIG="${ICONTEXT_CONFIG:-$PWD/.gitleaks.toml}"
+
+if [ ! -f "$CONFIG" ]; then
+    CONFIG="$ICONTEXT_ROOT/config/gitleaks.toml"
+fi
 
 if ! command -v gitleaks >/dev/null 2>&1; then
     echo "icontext: gitleaks not installed. Run: brew install gitleaks"

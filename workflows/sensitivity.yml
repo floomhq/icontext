@@ -1,0 +1,16 @@
+name: icontext sensitivity
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sensitivity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run sensitivity tier check
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/.icontext/scripts/check_tiers.py" --repo "$GITHUB_WORKSPACE" --all

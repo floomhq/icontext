@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# icontext pre-push hook: preserve Git LFS behavior, then enforce tier placement.
+
+set -euo pipefail
+
+ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
+CONFIG="${ICONTEXT_TIERS_CONFIG:-.icontext-tiers.yml}"
+
+REMOTE_NAME="${1:-}"
+REMOTE_URL="${2:-}"
+STDIN_PAYLOAD="$(cat || true)"
+
+if command -v git-lfs >/dev/null 2>&1; then
+    if [ -n "$STDIN_PAYLOAD" ]; then
+        printf "%s\n" "$STDIN_PAYLOAD" | git lfs pre-push "$REMOTE_NAME" "$REMOTE_URL"
+    else
+        git lfs pre-push "$REMOTE_NAME" "$REMOTE_URL" </dev/null
+    fi
+fi
+
+if [ ! -f "$CONFIG" ]; then
+    echo "icontext: $CONFIG not found; skipping sensitivity tier check"
+    exit 0
+fi
+
+args=()
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "${local_ref:-}" ] || continue
+    args+=(--ref-pair "$local_sha..$remote_sha")
+done <<<"$STDIN_PAYLOAD"
+
+PYTHONDONTWRITEBYTECODE=1 python3 "$ICONTEXT_ROOT/scripts/check_tiers.py" --repo "$PWD" --config "$CONFIG" "${args[@]}"

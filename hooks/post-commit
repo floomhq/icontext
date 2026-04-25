@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# icontext post-commit hook: preserve Git LFS behavior and run optional indexer.
+
+set -euo pipefail
+
+ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
+
+if command -v git-lfs >/dev/null 2>&1; then
+    git lfs post-commit "$@"
+fi
+
+if [ -x "$ICONTEXT_ROOT/scripts/update_index.py" ]; then
+    "$ICONTEXT_ROOT/scripts/update_index.py" --repo "$PWD" || {
+        echo "icontext: semantic index update failed; commit kept" >&2
+        exit 0
+    }
+fi
+

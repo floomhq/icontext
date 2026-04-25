@@ -43,14 +43,25 @@ if [ -f "$ICONTEXT_ROOT/config/tiers.yml" ]; then
     echo "  + .icontext-tiers.yml copied into vault root"
 fi
 
-# 4. GitHub Actions workflow (only if .github/workflows dir exists or can be created)
+# 4. Runtime scripts used by hooks and GitHub Actions
+mkdir -p "$VAULT/.icontext/scripts"
+for script in icontext_classify.py check_tiers.py update_index.py; do
+    src="$ICONTEXT_ROOT/scripts/$script"
+    if [ -f "$src" ]; then
+        cp "$src" "$VAULT/.icontext/scripts/$script"
+        chmod +x "$VAULT/.icontext/scripts/$script"
+        echo "  + .icontext/scripts/$script installed"
+    fi
+done
+
+# 5. GitHub Actions workflow (only if .github/workflows dir exists or can be created)
 if [ -f "$ICONTEXT_ROOT/workflows/sensitivity.yml" ]; then
     mkdir -p "$VAULT/.github/workflows"
     cp "$ICONTEXT_ROOT/workflows/sensitivity.yml" "$VAULT/.github/workflows/icontext-sensitivity.yml"
     echo "  + .github/workflows/icontext-sensitivity.yml installed"
 fi
 
-# 5. Record install marker
+# 6. Record install marker
 cat > "$VAULT/.icontext-installed" <<EOF
 # icontext install marker
 icontext_root=$ICONTEXT_ROOT
@@ -62,6 +73,6 @@ echo ""
 echo "icontext: install complete"
 echo ""
 echo "Next steps:"
-echo "  1. Review .gitleaks.toml and .icontext-tiers.yml in vault root, commit them"
-echo "  2. Test pre-commit: echo 'AKIA_FAKE_TEST=abc123' > /tmp/leak-test.md && cp /tmp/leak-test.md . && git add leak-test.md && git commit -m 'test'"
+echo "  1. Review .gitleaks.toml, .icontext-tiers.yml, and .icontext/scripts in vault root, commit them"
+echo "  2. Test pre-commit with a known fake Slack token fixture before committing sensitive files"
 echo "  3. (Phase 4+) Set GEMINI_API_KEY in env for sensitivity classifier"
