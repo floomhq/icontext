@@ -10,6 +10,7 @@ Tooling for personal context vaults: secret scanning, sensitivity classification
 4. **Post-commit** preserves Git LFS behavior and updates a local SQLite FTS index.
 5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
 6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook.
+7. **Doctor check** verifies hooks, encryption, index, MCP, agent config, native client registration, gitleaks, and GitHub Actions.
 
 ## Planned
 
@@ -49,6 +50,16 @@ This updates:
 - `~/.codex/config.toml` with `[mcp_servers.icontext]`.
 - `~/.cursor/mcp.json` with `mcpServers.icontext`.
 - `~/.config/opencode/opencode.json` with `mcp.icontext`.
+
+## Verify
+
+```bash
+python3 .icontext/scripts/doctor.py --repo . --icontext-root ~/icontext --deep
+```
+
+The doctor command is the quality gate for Federico's setup. It validates the
+current install without starting background services or adding hosted
+dependencies.
 
 ## Uninstall
 

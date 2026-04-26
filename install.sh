@@ -45,7 +45,7 @@ fi
 
 # 4. Runtime scripts used by hooks and GitHub Actions
 mkdir -p "$VAULT/.icontext/scripts"
-for script in icontext_classify.py check_tiers.py indexlib.py update_index.py prompt_context.py install_claude_integration.py; do
+for script in icontext_classify.py check_tiers.py indexlib.py update_index.py prompt_context.py install_claude_integration.py doctor.py; do
     src="$ICONTEXT_ROOT/scripts/$script"
     if [ -f "$src" ]; then
         cp "$src" "$VAULT/.icontext/scripts/$script"
@@ -84,3 +84,4 @@ echo "Next steps:"
 echo "  1. Review .gitleaks.toml, .icontext-tiers.yml, and .icontext/scripts in vault root, commit them"
 echo "  2. Build local search index: python3 .icontext/scripts/update_index.py --repo ."
 echo "  3. Install agent integrations: python3 .icontext/scripts/install_claude_integration.py --icontext-root $ICONTEXT_ROOT --repo $VAULT"
+echo "  4. Verify everything: python3 .icontext/scripts/doctor.py --repo . --icontext-root $ICONTEXT_ROOT --deep"
