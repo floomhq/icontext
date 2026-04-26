@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "mcp"))
 
 from indexlib import append_log, read_text, rebuild, search
+from install_claude_integration import install_claude, install_codex, install_cursor, install_opencode
 from server import Server
 
 
@@ -61,6 +63,43 @@ class IcontextIndexMcpTests(unittest.TestCase):
 
         self.assertEqual(tools["tools"][0]["name"], "search_vault")
         self.assertEqual(payload[0]["path"], "vault/note.md")
+
+
+class IcontextIntegrationInstallTests(unittest.TestCase):
+    def test_agent_configs_are_installed_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            icontext_root = root / "icontext"
+            repo = root / "context"
+            claude_dir = root / ".claude"
+            codex_config = root / ".codex" / "config.toml"
+            cursor_mcp = root / ".cursor" / "mcp.json"
+            opencode_config = root / ".config" / "opencode" / "opencode.json"
+
+            codex_config.parent.mkdir(parents=True)
+            codex_config.write_text('[mcp_servers.fetch]\ncommand = "uvx"\nargs = ["mcp-server-fetch"]\n', encoding="utf-8")
+            cursor_mcp.parent.mkdir(parents=True)
+            cursor_mcp.write_text('{"mcpServers":{"fetch":{"command":"uvx","args":["mcp-server-fetch"],"env":{}}}}\n', encoding="utf-8")
+            opencode_config.parent.mkdir(parents=True)
+            opencode_config.write_text('{"mcp":{"fetch":{"type":"local","command":["uvx","mcp-server-fetch"],"enabled":true}}}\n', encoding="utf-8")
+
+            for _ in range(2):
+                install_claude(claude_dir, icontext_root, repo)
+                install_codex(codex_config, icontext_root, repo)
+                install_cursor(cursor_mcp, icontext_root, repo)
+                install_opencode(opencode_config, icontext_root, repo)
+
+            claude_mcp = json.loads((claude_dir / ".mcp.json").read_text(encoding="utf-8"))
+            claude_settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+            codex = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+            cursor = json.loads(cursor_mcp.read_text(encoding="utf-8"))
+            opencode = json.loads(opencode_config.read_text(encoding="utf-8"))
+
+        self.assertEqual(claude_mcp["mcpServers"]["icontext"]["command"], "python3")
+        self.assertEqual(len(claude_settings["hooks"]["UserPromptSubmit"]), 1)
+        self.assertEqual(codex["mcp_servers"]["icontext"]["command"], "python3")
+        self.assertEqual(cursor["mcpServers"]["icontext"]["args"][-1], str(repo))
+        self.assertEqual(opencode["mcp"]["icontext"]["command"][0], "python3")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ Tooling for personal context vaults: secret scanning, sensitivity classification
 3. **GitHub Actions** re-runs the classifier on every push for an audit trail.
 4. **Post-commit** preserves Git LFS behavior and updates a local SQLite FTS index.
 5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
-6. **UserPromptSubmit hook** injects relevant local context into Claude prompts.
+6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook.
 
 ## Planned
 
@@ -36,15 +36,19 @@ bash ~/icontext/install.sh
 
 This symlinks hooks, installs the GitHub Actions workflow, copies runtime scripts into `.icontext/scripts/`, installs the MCP server into `.icontext/mcp/`, and writes `config/tiers.yml` into the vault root.
 
-## Claude Integration
+## Agent Integrations
 
 ```bash
 python3 .icontext/scripts/update_index.py --repo .
 python3 .icontext/scripts/install_claude_integration.py --icontext-root ~/icontext --repo .
 ```
 
-This updates `~/.claude/.mcp.json` with an `icontext` server and adds a
-`UserPromptSubmit` hook to `~/.claude/settings.json`.
+This updates:
+
+- `~/.claude/.mcp.json` with an `icontext` MCP server and `~/.claude/settings.json` with a `UserPromptSubmit` hook.
+- `~/.codex/config.toml` with `[mcp_servers.icontext]`.
+- `~/.cursor/mcp.json` with `mcpServers.icontext`.
+- `~/.config/opencode/opencode.json` with `mcp.icontext`.
 
 ## Uninstall
 
