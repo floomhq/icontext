@@ -45,7 +45,7 @@ fi
 
 # 4. Runtime scripts used by hooks and GitHub Actions
 mkdir -p "$VAULT/.icontext/scripts"
-for script in icontext_classify.py check_tiers.py indexlib.py update_index.py prompt_context.py install_claude_integration.py doctor.py; do
+for script in icontext_classify.py check_tiers.py indexlib.py update_index.py prompt_context.py install_claude_integration.py doctor.py eval_retrieval.py; do
     src="$ICONTEXT_ROOT/scripts/$script"
     if [ -f "$src" ]; then
         cp "$src" "$VAULT/.icontext/scripts/$script"

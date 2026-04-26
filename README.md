@@ -1,6 +1,12 @@
-# icontext
+# icontext: encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode
 
-Tooling for personal context vaults: secret scanning, sensitivity classification, semantic search, and MCP access. Install into any git repo used as a private knowledge vault.
+Local-first tooling for an encrypted AI context vault: secret scanning,
+sensitivity tiers, git-crypt protection, SQLite full-text retrieval, MCP access,
+and agent integrations for Claude Code, Codex, Cursor, and OpenCode.
+
+Use `icontext` when your personal or company context repository needs to be
+useful to AI coding agents without leaking private notes, legal files, tax
+records, credentials, emails, PDFs, or strategy docs.
 
 ## What it does today
 
@@ -11,6 +17,7 @@ Tooling for personal context vaults: secret scanning, sensitivity classification
 5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
 6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook.
 7. **Doctor check** verifies hooks, encryption, index, MCP, agent config, native client registration, gitleaks, and GitHub Actions.
+8. **Retrieval eval** measures whether important prompts retrieve the expected vault files.
 
 ## Planned
 
@@ -61,6 +68,15 @@ The doctor command is the quality gate for Federico's setup. It validates the
 current install without starting background services or adding hosted
 dependencies.
 
+## Retrieval Eval
+
+```bash
+python3 .icontext/scripts/eval_retrieval.py --repo . --cases .icontext/retrieval-eval.json
+```
+
+The eval file is intentionally local to each vault. `icontext` provides the
+runner; your repo owns the prompts and expected files that matter.
+
 ## Uninstall
 
 ```bash
@@ -75,6 +91,14 @@ bash ~/icontext/uninstall.sh /path/to/vault
 - Python 3.11+
 - No API key is required for the deterministic tier classifier.
 
+## Keywords
+
+AI context vault, encrypted context repository, Claude Code MCP, Codex MCP,
+Cursor MCP, OpenCode MCP, git-crypt vault, gitleaks pre-commit, context
+engineering, personal knowledge management, local-first AI agents, SQLite FTS
+retrieval.
+
 ## Status
 
-Early. Built for Federico's `federicodeponte/context`. Generic enough to install elsewhere.
+Built for Federico's `federicodeponte/context` and kept generic enough to
+install into another private Git knowledge vault.

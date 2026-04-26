@@ -43,6 +43,7 @@ class Doctor:
         self.check_hooks()
         self.check_config_files()
         self.check_gitcrypt()
+        self.check_vault_blobs()
         self.check_index()
         self.check_mcp_stdio()
         self.check_agent_configs()
@@ -123,6 +124,34 @@ class Doctor:
             self.pass_("git-crypt:blob", "vault/secretary/.env is encrypted in HEAD")
         else:
             self.fail("git-crypt:blob", "expected GITCRYPT header in HEAD blob")
+
+    def check_vault_blobs(self) -> None:
+        files = self.command(["git", "ls-files", "-z", "vault/"], timeout=30)
+        if files.returncode != 0:
+            self.fail("git-crypt:vault-blobs", files.stdout.strip())
+            return
+        paths = [item for item in files.stdout.split("\0") if item]
+        failures: list[str] = []
+        for rel_path in paths:
+            attrs = self.command(["git", "check-attr", "filter", "--", rel_path], timeout=15)
+            if "git-crypt" not in attrs.stdout:
+                failures.append(f"{rel_path}: missing git-crypt filter")
+                continue
+            blob = subprocess.run(
+                ["git", "cat-file", "-p", f"HEAD:{rel_path}"],
+                cwd=self.repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=15,
+            )
+            if blob.returncode != 0 or not blob.stdout.startswith(b"\x00GITCRYPT"):
+                failures.append(f"{rel_path}: HEAD blob is not git-crypt encrypted")
+                if len(failures) >= 10:
+                    break
+        if failures:
+            self.fail("git-crypt:vault-blobs", "; ".join(failures))
+        else:
+            self.pass_("git-crypt:vault-blobs", f"{len(paths)} tracked vault file(s) encrypted in HEAD")
 
     def check_index(self) -> None:
         db = self.repo / ".git" / "icontext" / "index.sqlite"
