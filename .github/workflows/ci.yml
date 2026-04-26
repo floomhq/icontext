@@ -20,4 +20,8 @@ jobs:
       - name: Install gitleaks
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
       - name: Run secret scan
-        run: "$(go env GOPATH)/bin/gitleaks" detect --config config/gitleaks.toml --redact --no-banner
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" detect \
+            --config config/gitleaks.toml \
+            --redact \
+            --no-banner
