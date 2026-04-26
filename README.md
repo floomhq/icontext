@@ -1,14 +1,37 @@
-# icontext: encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode
+# icontext
 
 [![CI](https://github.com/buildingopen/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/buildingopen/icontext/actions/workflows/ci.yml)
 
-Local-first tooling for an encrypted AI context vault: secret scanning,
-sensitivity tiers, git-crypt protection, SQLite full-text retrieval, MCP access,
-and agent integrations for Claude Code, Codex, Cursor, and OpenCode.
+**Encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode.**
 
-Use `icontext` when your personal or company context repository needs to be
-useful to AI coding agents without leaking private notes, legal files, tax
-records, credentials, emails, PDFs, or strategy docs.
+Turn a private context repo into agent-ready infrastructure: encrypted Git
+tiers, gitleaks, deterministic sensitivity checks, local SQLite retrieval, MCP
+tools, Claude prompt context, multi-agent config, and one doctor command that
+proves the whole system works.
+
+`icontext` is for people who want AI agents to use their real operating context
+without turning private notes, legal files, tax records, credentials, emails,
+PDFs, and strategy docs into prompt soup.
+
+## What You Get
+
+```text
+your-context-repo/
+  shareable/       public-safe notes and assets
+  internal/        private working context
+  vault/           git-crypt encrypted legal, identity, admin, secrets, PDFs
+  .icontext/       local runtime copied in by the installer
+```
+
+Then your agents get the same local context layer:
+
+```text
+Claude Code  -> prompt hook + MCP
+Codex        -> MCP
+Cursor       -> MCP
+OpenCode     -> MCP
+GitHub       -> gitleaks + tier CI
+```
 
 ## Why
 
@@ -19,22 +42,25 @@ into prompts and too important to leave invisible.
 
 `icontext` turns a private context repo into infrastructure:
 
-- encrypted in Git where it needs to be encrypted
-- guarded by local hooks and CI before secrets leak
-- searchable locally without hosted vector databases
-- available to Claude Code, Codex, Cursor, and OpenCode through one MCP server
-- verified by one `doctor.py` command
+- **encrypted in Git** where it needs to be encrypted
+- **guarded before commit, push, and CI** before secrets leak
+- **searchable locally** without hosted vector databases
+- **available to Claude Code, Codex, Cursor, and OpenCode** through one MCP server
+- **verified end to end** by one `doctor.py` command
 
-## What it does today
+## Features
 
-1. **Pre-commit** blocks commits containing API keys, tokens, or PII (via gitleaks).
-2. **Pre-push** classifies each changed file with deterministic rules and blocks pushes where file content's sensitivity exceeds its folder's tier.
-3. **GitHub Actions** re-runs the classifier on every push for an audit trail.
-4. **Post-commit** preserves Git LFS behavior and updates a local SQLite FTS index.
-5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
-6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook with conservative tier and character limits.
-7. **Doctor check** verifies hooks, encryption, index, MCP, agent config, native client registration, gitleaks, and GitHub Actions.
-8. **Retrieval eval** measures whether important prompts retrieve the expected vault files.
+| Layer | What icontext does |
+|---|---|
+| Encryption | `vault/**` is protected with `git-crypt` in Git and on GitHub. |
+| Secret scanning | `gitleaks` runs locally and in GitHub Actions. |
+| Tier enforcement | deterministic classifier blocks sensitive files in lower-trust folders. |
+| Retrieval | local SQLite FTS index, rebuilt by hook, no API key required. |
+| MCP | `search_vault`, `read_vault_file`, `append_log`, `rebuild_index`. |
+| Claude Code | `UserPromptSubmit` hook with conservative tier and character limits. |
+| Codex, Cursor, OpenCode | installer writes the matching MCP config for each agent. |
+| Verification | `doctor.py --deep` checks hooks, encryption, index, MCP, agents, gitleaks, and CI. |
+| Evaluation | `eval_retrieval.py` tests whether important prompts hit expected files. |
 
 ## Planned
 
@@ -55,8 +81,8 @@ The classifier enforces content matches folder. Secrets are never allowed anywhe
 ## Install
 
 ```bash
-cd /path/to/your/vault
 git clone https://github.com/buildingopen/icontext ~/icontext
+cd /path/to/your/context-repo
 bash ~/icontext/install.sh
 ```
 
@@ -81,7 +107,7 @@ passive prompt injection excludes `vault/` snippets unless you explicitly opt in
 with `ICONTEXT_MAX_TIER=vault`. Explicit MCP tool calls can still search or read
 vault files.
 
-## Verify
+## Prove It Works
 
 ```bash
 python3 .icontext/scripts/doctor.py --repo . --icontext-root ~/icontext --deep
@@ -90,6 +116,12 @@ python3 .icontext/scripts/doctor.py --repo . --icontext-root ~/icontext --deep
 The doctor command is the quality gate for Federico's setup. It validates the
 current install without starting background services or adding hosted
 dependencies.
+
+Example production result:
+
+```text
+summary: 27 pass, 0 warn, 0 fail
+```
 
 ## Retrieval Eval
 
@@ -123,6 +155,14 @@ bash ~/icontext/uninstall.sh /path/to/vault
 - all tracked `vault/**` files encrypted in `HEAD`
 - current-tree and full-history gitleaks scans clean after history rewrite
 - Claude Code, Codex, Cursor, and OpenCode wiring verified
+
+## What icontext Is Not
+
+- not a hosted vector database
+- not a replacement for Obsidian, Notion, or a full PKM system
+- not an agent framework
+- not a way to make leaked git-crypt keys safe
+- not magic semantic search; current retrieval is SQLite FTS by design
 
 ## Keywords
 
