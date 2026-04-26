@@ -1,5 +1,7 @@
 # icontext: encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode
 
+[![CI](https://github.com/buildingopen/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/buildingopen/icontext/actions/workflows/ci.yml)
+
 Local-first tooling for an encrypted AI context vault: secret scanning,
 sensitivity tiers, git-crypt protection, SQLite full-text retrieval, MCP access,
 and agent integrations for Claude Code, Codex, Cursor, and OpenCode.
@@ -7,6 +9,21 @@ and agent integrations for Claude Code, Codex, Cursor, and OpenCode.
 Use `icontext` when your personal or company context repository needs to be
 useful to AI coding agents without leaking private notes, legal files, tax
 records, credentials, emails, PDFs, or strategy docs.
+
+## Why
+
+AI agents are only as useful as the context they can safely access. Most private
+operating context lives in messy folders, old notes, legal files, emails,
+credentials, PDFs, and strategy docs. That context is too sensitive to paste
+into prompts and too important to leave invisible.
+
+`icontext` turns a private context repo into infrastructure:
+
+- encrypted in Git where it needs to be encrypted
+- guarded by local hooks and CI before secrets leak
+- searchable locally without hosted vector databases
+- available to Claude Code, Codex, Cursor, and OpenCode through one MCP server
+- verified by one `doctor.py` command
 
 ## What it does today
 
@@ -39,6 +56,7 @@ The classifier enforces content matches folder. Secrets are never allowed anywhe
 
 ```bash
 cd /path/to/your/vault
+git clone https://github.com/buildingopen/icontext ~/icontext
 bash ~/icontext/install.sh
 ```
 
@@ -90,11 +108,21 @@ bash ~/icontext/uninstall.sh /path/to/vault
 
 ## Requirements
 
-- `gitleaks` (brew install gitleaks)
-- `git-crypt` (brew install git-crypt)
-- `git-lfs` (brew install git-lfs)
+- `gitleaks` (`brew install gitleaks`)
+- `git-crypt` (`brew install git-crypt`)
+- `git-lfs` (`brew install git-lfs`)
 - Python 3.11+
 - No API key is required for the deterministic tier classifier.
+
+## Launch Status
+
+`icontext` is production-proven in Federico's private `context` vault:
+
+- `doctor.py`: 27 pass, 0 warnings, 0 failures
+- retrieval eval: 3 pass, 0 failures
+- all tracked `vault/**` files encrypted in `HEAD`
+- current-tree and full-history gitleaks scans clean after history rewrite
+- Claude Code, Codex, Cursor, and OpenCode wiring verified
 
 ## Keywords
 
