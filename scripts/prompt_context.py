@@ -10,6 +10,10 @@ from pathlib import Path
 
 from indexlib import search
 
+DEFAULT_MAX_TIER = "internal"
+DEFAULT_CHAR_BUDGET = 1500
+DEFAULT_LIMIT = 5
+
 
 def _prompt(payload: dict) -> str:
     for key in ("prompt", "message", "user_prompt"):
@@ -24,18 +28,39 @@ def _prompt(payload: dict) -> str:
     return ""
 
 
+def _int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name, "")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 def main() -> int:
     payload = json.loads(sys.stdin.read() or "{}")
     repo = Path(os.environ.get("ICONTEXT_VAULT", "/Users/federicodeponte/context"))
+    max_tier = os.environ.get("ICONTEXT_MAX_TIER", DEFAULT_MAX_TIER).strip().lower() or DEFAULT_MAX_TIER
+    char_budget = _int_env("ICONTEXT_PROMPT_CHAR_BUDGET", DEFAULT_CHAR_BUDGET, 0, 6000)
+    limit = _int_env("ICONTEXT_PROMPT_LIMIT", DEFAULT_LIMIT, 1, 10)
     prompt = _prompt(payload)
     context = ""
 
-    if prompt and repo.exists():
-        results = search(repo, prompt, limit=5)
+    if prompt and repo.exists() and char_budget:
+        results = search(repo, prompt, limit=limit, max_tier=max_tier)
         if results:
             lines = ["Relevant context from icontext:"]
+            used_chars = len(lines[0])
+            seen_paths: set[str] = set()
             for result in results:
-                lines.append(f"- {result.path} [{result.tier}]: {result.snippet}")
+                if result.path in seen_paths:
+                    continue
+                seen_paths.add(result.path)
+                line = f"- {result.path} [{result.tier}]: {result.snippet}"
+                if used_chars + len(line) + 1 > char_budget:
+                    break
+                lines.append(line)
+                used_chars += len(line) + 1
             context = "\n".join(lines)
 
     print(

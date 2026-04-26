@@ -64,6 +64,27 @@ class IcontextIndexMcpTests(unittest.TestCase):
         self.assertEqual(tools["tools"][0]["name"], "search_vault")
         self.assertEqual(payload[0]["path"], "vault/note.md")
 
+    def test_search_max_tier_filters_vault_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            (root / "internal").mkdir()
+            (root / "vault").mkdir()
+            (root / "internal" / "note.md").write_text(
+                "Roadmap for investor onboarding.\n", encoding="utf-8"
+            )
+            (root / "vault" / "secret.md").write_text(
+                "Roadmap for investor onboarding with private bank details.\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, stdout=subprocess.PIPE)
+            rebuild(root)
+
+            results = search(root, "roadmap investor onboarding", max_tier="internal")
+
+        self.assertTrue(results)
+        self.assertNotIn("vault/secret.md", [result.path for result in results])
+
 
 class IcontextIntegrationInstallTests(unittest.TestCase):
     def test_agent_configs_are_installed_idempotently(self):

@@ -31,6 +31,7 @@ TEXT_SUFFIXES = {
     ".yml",
 }
 
+TIER_RANKS = {"shareable": 0, "internal": 1, "vault": 2, "root": 0}
 MAX_INDEX_BYTES = 500_000
 MAX_READ_BYTES = 2_000_000
 TOKEN_RE = re.compile(r"[A-Za-z0-9_./-]{2,}")
@@ -173,7 +174,13 @@ def _snippet(body: str, query: str, max_chars: int = 260) -> str:
     return snippet
 
 
-def search(repo: str | Path, query: str, limit: int = 5, tier: str | None = None) -> list[SearchResult]:
+def search(
+    repo: str | Path,
+    query: str,
+    limit: int = 5,
+    tier: str | None = None,
+    max_tier: str | None = None,
+) -> list[SearchResult]:
     root = repo_root(repo)
     db = index_path(root)
     if not db.exists():
@@ -188,6 +195,13 @@ def search(repo: str | Path, query: str, limit: int = 5, tier: str | None = None
     if tier:
         where += " and docs.tier = ?"
         params.append(tier)
+    elif max_tier:
+        if max_tier not in TIER_RANKS:
+            raise ValueError(f"unknown tier: {max_tier}")
+        allowed = [name for name, rank in TIER_RANKS.items() if rank <= TIER_RANKS[max_tier]]
+        placeholders = ", ".join("?" for _ in allowed)
+        where += f" and docs.tier in ({placeholders})"
+        params.extend(allowed)
     params.append(limit)
 
     rows = conn.execute(

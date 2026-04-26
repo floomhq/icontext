@@ -15,7 +15,7 @@ records, credentials, emails, PDFs, or strategy docs.
 3. **GitHub Actions** re-runs the classifier on every push for an audit trail.
 4. **Post-commit** preserves Git LFS behavior and updates a local SQLite FTS index.
 5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
-6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook.
+6. **Agent integrations** wire the same vault MCP server into Claude Code, Codex, Cursor, and OpenCode. Claude Code also gets a `UserPromptSubmit` hook with conservative tier and character limits.
 7. **Doctor check** verifies hooks, encryption, index, MCP, agent config, native client registration, gitleaks, and GitHub Actions.
 8. **Retrieval eval** measures whether important prompts retrieve the expected vault files.
 
@@ -57,6 +57,11 @@ This updates:
 - `~/.codex/config.toml` with `[mcp_servers.icontext]`.
 - `~/.cursor/mcp.json` with `mcpServers.icontext`.
 - `~/.config/opencode/opencode.json` with `mcp.icontext`.
+
+The Claude prompt hook defaults to `ICONTEXT_MAX_TIER=internal`, which means
+passive prompt injection excludes `vault/` snippets unless you explicitly opt in
+with `ICONTEXT_MAX_TIER=vault`. Explicit MCP tool calls can still search or read
+vault files.
 
 ## Verify
 
