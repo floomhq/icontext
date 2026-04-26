@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Claude UserPromptSubmit hook: inject relevant icontext search hits.
+
+set -euo pipefail
+
+ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
+ICONTEXT_VAULT="${ICONTEXT_VAULT:-$HOME/context}"
+
+PYTHONDONTWRITEBYTECODE=1 ICONTEXT_VAULT="$ICONTEXT_VAULT" \
+    python3 "$ICONTEXT_ROOT/scripts/prompt_context.py"

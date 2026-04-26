@@ -45,7 +45,7 @@ fi
 
 # 4. Runtime scripts used by hooks and GitHub Actions
 mkdir -p "$VAULT/.icontext/scripts"
-for script in icontext_classify.py check_tiers.py update_index.py; do
+for script in icontext_classify.py check_tiers.py indexlib.py update_index.py prompt_context.py install_claude_integration.py; do
     src="$ICONTEXT_ROOT/scripts/$script"
     if [ -f "$src" ]; then
         cp "$src" "$VAULT/.icontext/scripts/$script"
@@ -61,7 +61,15 @@ if [ -f "$ICONTEXT_ROOT/workflows/sensitivity.yml" ]; then
     echo "  + .github/workflows/icontext-sensitivity.yml installed"
 fi
 
-# 6. Record install marker
+# 6. MCP server
+if [ -f "$ICONTEXT_ROOT/mcp/server.py" ]; then
+    mkdir -p "$VAULT/.icontext/mcp"
+    cp "$ICONTEXT_ROOT/mcp/server.py" "$VAULT/.icontext/mcp/server.py"
+    chmod +x "$VAULT/.icontext/mcp/server.py"
+    echo "  + .icontext/mcp/server.py installed"
+fi
+
+# 7. Record install marker
 cat > "$VAULT/.icontext-installed" <<EOF
 # icontext install marker
 icontext_root=$ICONTEXT_ROOT
@@ -74,5 +82,5 @@ echo "icontext: install complete"
 echo ""
 echo "Next steps:"
 echo "  1. Review .gitleaks.toml, .icontext-tiers.yml, and .icontext/scripts in vault root, commit them"
-echo "  2. Test pre-commit with a known fake Slack token fixture before committing sensitive files"
-echo "  3. (Phase 4+) Set GEMINI_API_KEY in env for sensitivity classifier"
+echo "  2. Build local search index: python3 .icontext/scripts/update_index.py --repo ."
+echo "  3. Install Claude integration: python3 .icontext/scripts/install_claude_integration.py --icontext-root $ICONTEXT_ROOT --repo $VAULT"

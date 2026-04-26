@@ -7,12 +7,13 @@ Tooling for personal context vaults: secret scanning, sensitivity classification
 1. **Pre-commit** blocks commits containing API keys, tokens, or PII (via gitleaks).
 2. **Pre-push** classifies each changed file with deterministic rules and blocks pushes where file content's sensitivity exceeds its folder's tier.
 3. **GitHub Actions** re-runs the classifier on every push for an audit trail.
-4. **Post-commit** preserves Git LFS behavior and records a local index marker.
+4. **Post-commit** preserves Git LFS behavior and updates a local SQLite FTS index.
+5. **MCP server** exposes `search_vault`, `read_vault_file`, `append_log`, and `rebuild_index`.
+6. **UserPromptSubmit hook** injects relevant local context into Claude prompts.
 
 ## Planned
 
-- Semantic index of vault contents.
-- MCP server exposing `search_vault`, `read_vault_file`, and `append_log`.
+- Optional embedding reranker for semantic ranking beyond FTS.
 
 ## Tiers
 
@@ -33,7 +34,17 @@ cd /path/to/your/vault
 bash ~/icontext/install.sh
 ```
 
-This symlinks hooks, installs the GitHub Actions workflow, copies runtime scripts into `.icontext/scripts/`, and writes `config/tiers.yml` into the vault root.
+This symlinks hooks, installs the GitHub Actions workflow, copies runtime scripts into `.icontext/scripts/`, installs the MCP server into `.icontext/mcp/`, and writes `config/tiers.yml` into the vault root.
+
+## Claude Integration
+
+```bash
+python3 .icontext/scripts/update_index.py --repo .
+python3 .icontext/scripts/install_claude_integration.py --icontext-root ~/icontext --repo .
+```
+
+This updates `~/.claude/.mcp.json` with an `icontext` server and adds a
+`UserPromptSubmit` hook to `~/.claude/settings.json`.
 
 ## Uninstall
 
