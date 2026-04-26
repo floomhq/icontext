@@ -15,7 +15,7 @@ jobs:
         with:
           go-version: stable
       - name: Install gitleaks
-        run: go install github.com/gitleaks/gitleaks/v8@v8.30.0
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
       - name: Run gitleaks current-tree scan
         run: |
           "$(go env GOPATH)/bin/gitleaks" dir "$GITHUB_WORKSPACE" \
