@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -345,6 +348,276 @@ class Doctor:
             self.fail("github:action", result.stdout.strip() or "no workflow run found")
 
 
+class FreshInstallDoctor:
+    HOOKS = ["pre-commit", "pre-push", "post-commit"]
+    SCRIPT_FILES = [
+        "icontext_classify.py",
+        "check_tiers.py",
+        "indexlib.py",
+        "update_index.py",
+        "prompt_context.py",
+        "install_claude_integration.py",
+        "doctor.py",
+        "eval_retrieval.py",
+    ]
+    MANIFEST_CANDIDATES = [
+        ".icontext/manifest.json",
+        ".icontext/install-manifest.json",
+        ".icontext-installed.json",
+    ]
+
+    def __init__(self, icontext_root: Path):
+        self.icontext_root = icontext_root.expanduser().resolve()
+        self.checks: list[Check] = []
+
+    def pass_(self, name: str, detail: str) -> None:
+        self.checks.append(Check(name, "pass", detail))
+
+    def fail(self, name: str, detail: str) -> None:
+        self.checks.append(Check(name, "fail", detail))
+
+    def run(self) -> int:
+        self.check_inputs()
+        if any(check.status == "fail" for check in self.checks):
+            return 1
+        with tempfile.TemporaryDirectory(prefix="icontext-doctor-") as tempdir:
+            temp_root = Path(tempdir)
+            dry_repo = temp_root / "dry-run-repo"
+            real_repo = temp_root / "real-repo"
+            agent_repo = temp_root / "agent-repo"
+            agent_home = temp_root / "agent-home"
+            dry_ready = self.init_git_repo(dry_repo)
+            real_ready = self.init_git_repo(real_repo)
+            agent_ready = self.init_git_repo(agent_repo)
+            if dry_ready:
+                self.check_dry_run(dry_repo)
+            if real_ready:
+                self.check_real_install(real_repo)
+            if agent_ready:
+                self.check_agent_install(agent_repo, agent_home)
+        return 1 if any(check.status == "fail" for check in self.checks) else 0
+
+    def command(
+        self,
+        args: list[str],
+        cwd: Path,
+        timeout: int = 30,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess:
+        env = {**os.environ, "ICONTEXT_ROOT": str(self.icontext_root), "VAULT": str(cwd)}
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+
+    def check_inputs(self) -> None:
+        install = self.icontext_root / "install.sh"
+        uninstall = self.icontext_root / "uninstall.sh"
+        if not install.exists():
+            self.fail("fresh-install:install-script", f"missing {install}")
+        elif not install.is_file():
+            self.fail("fresh-install:install-script", f"not a file: {install}")
+        else:
+            self.pass_("fresh-install:install-script", str(install))
+        if not uninstall.exists():
+            self.fail("fresh-install:uninstall-script", f"missing {uninstall}")
+        elif not uninstall.is_file():
+            self.fail("fresh-install:uninstall-script", f"not a file: {uninstall}")
+        else:
+            self.pass_("fresh-install:uninstall-script", str(uninstall))
+        if shutil.which("git"):
+            self.pass_("fresh-install:command:git", shutil.which("git") or "git")
+        else:
+            self.fail("fresh-install:command:git", "not found on PATH")
+
+    def init_git_repo(self, repo: Path) -> bool:
+        repo.mkdir(parents=True)
+        result = subprocess.run(
+            ["git", "init", "-q"],
+            cwd=repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=15,
+        )
+        if result.returncode == 0 and (repo / ".git").is_dir():
+            self.pass_(f"fresh-install:init:{repo.name}", str(repo))
+            return True
+        else:
+            self.fail(f"fresh-install:init:{repo.name}", result.stdout.strip())
+            return False
+
+    def check_dry_run(self, repo: Path) -> None:
+        result = self.command(["bash", str(self.icontext_root / "install.sh"), "--dry-run", "--yes"], cwd=repo)
+        if result.returncode == 0:
+            self.pass_("fresh-install:dry-run", "install.sh --dry-run --yes exited 0")
+        else:
+            self.fail("fresh-install:dry-run", result.stdout.strip())
+            return
+        installed = [rel for rel in self.expected_installed_paths() if (repo / rel).exists()]
+        installed.extend(f".git/hooks/{hook}" for hook in self.HOOKS if (repo / ".git" / "hooks" / hook).exists())
+        if installed:
+            self.fail("fresh-install:dry-run:no-mutations", f"created files: {', '.join(sorted(installed))}")
+        else:
+            self.pass_("fresh-install:dry-run:no-mutations", "no install artifacts created")
+
+    def check_real_install(self, repo: Path) -> None:
+        install = self.command(["bash", str(self.icontext_root / "install.sh"), "--yes"], cwd=repo)
+        if install.returncode == 0:
+            self.pass_("fresh-install:install", "install.sh --yes exited 0")
+        else:
+            self.fail("fresh-install:install", install.stdout.strip())
+            return
+
+        expected = self.expected_installed_paths()
+        missing = [rel for rel in expected if not (repo / rel).exists()]
+        missing.extend(f".git/hooks/{hook}" for hook in self.HOOKS if not (repo / ".git" / "hooks" / hook).exists())
+        if missing:
+            self.fail("fresh-install:files", f"missing: {', '.join(sorted(missing))}")
+        else:
+            self.pass_("fresh-install:files", f"{len(expected) + len(self.HOOKS)} expected files present")
+
+        self.check_manifest(repo, expected)
+
+        uninstall = self.command(["bash", str(self.icontext_root / "uninstall.sh"), "--yes"], cwd=repo)
+        if uninstall.returncode == 0:
+            self.pass_("fresh-install:uninstall", "uninstall.sh --yes exited 0")
+        else:
+            self.fail("fresh-install:uninstall", uninstall.stdout.strip())
+            return
+
+        remaining = [rel for rel in expected if (repo / rel).exists()]
+        remaining.extend(f".git/hooks/{hook}" for hook in self.HOOKS if (repo / ".git" / "hooks" / hook).exists())
+        if remaining:
+            self.fail("fresh-install:uninstall:removed", f"remaining: {', '.join(sorted(remaining))}")
+        else:
+            self.pass_("fresh-install:uninstall:removed", "installed files removed")
+        if (repo / ".git").is_dir():
+            self.pass_("fresh-install:uninstall:repo", ".git directory remains")
+        else:
+            self.fail("fresh-install:uninstall:repo", ".git directory removed")
+
+    def check_agent_install(self, repo: Path, home: Path) -> None:
+        home.mkdir(parents=True)
+        install = self.command(
+            ["bash", str(self.icontext_root / "install.sh"), "--yes", "--mode", "agents"],
+            cwd=repo,
+            extra_env={"HOME": str(home)},
+        )
+        if install.returncode == 0:
+            self.pass_("fresh-install:agents:install", "install.sh --yes --mode agents exited 0")
+        else:
+            self.fail("fresh-install:agents:install", install.stdout.strip())
+            return
+
+        expected = [
+            home / ".claude" / ".mcp.json",
+            home / ".claude" / "settings.json",
+            home / ".codex" / "config.toml",
+            home / ".cursor" / "mcp.json",
+            home / ".config" / "opencode" / "opencode.json",
+        ]
+        missing = [str(path.relative_to(home)) for path in expected if not path.exists()]
+        if missing:
+            self.fail("fresh-install:agents:configs", f"missing: {', '.join(missing)}")
+        else:
+            self.pass_("fresh-install:agents:configs", "Claude, Codex, Cursor, and OpenCode configs written under temp HOME")
+
+    def expected_installed_paths(self) -> list[str]:
+        expected: list[str] = [".icontext-installed"]
+        if (self.icontext_root / "config" / "gitleaks.toml").is_file():
+            expected.append(".gitleaks.toml")
+        if (self.icontext_root / "config" / "tiers.yml").is_file():
+            expected.append(".icontext-tiers.yml")
+        if (self.icontext_root / "workflows" / "sensitivity.yml").is_file():
+            expected.append(".github/workflows/icontext-sensitivity.yml")
+        if (self.icontext_root / "mcp" / "server.py").is_file():
+            expected.append(".icontext/mcp/server.py")
+        for script in self.SCRIPT_FILES:
+            if (self.icontext_root / "scripts" / script).is_file():
+                expected.append(f".icontext/scripts/{script}")
+        return expected
+
+    def check_manifest(self, repo: Path, expected: list[str]) -> None:
+        manifest = next((repo / rel for rel in self.MANIFEST_CANDIDATES if (repo / rel).is_file()), None)
+        if manifest is None:
+            self.fail("fresh-install:manifest", "missing manifest JSON")
+            return
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.fail("fresh-install:manifest", f"{manifest}: {exc}")
+            return
+        entries = self.manifest_entries(data, repo)
+        if not entries:
+            self.fail("fresh-install:manifest", f"{manifest}: no file entries")
+            return
+        expected_set = set(expected)
+        manifest_paths = set(entries)
+        missing = sorted(expected_set - manifest_paths)
+        bad_hashes = [
+            rel
+            for rel in sorted(expected_set & manifest_paths)
+            if entries[rel] != self.sha256(repo / rel)
+        ]
+        if missing or bad_hashes:
+            detail = []
+            if missing:
+                detail.append(f"missing entries: {', '.join(missing)}")
+            if bad_hashes:
+                detail.append(f"bad sha256: {', '.join(bad_hashes)}")
+            self.fail("fresh-install:manifest", "; ".join(detail))
+        else:
+            self.pass_("fresh-install:manifest", f"{manifest.relative_to(repo)} covers {len(expected_set)} files")
+
+    def manifest_entries(self, data: object, repo: Path) -> dict[str, str]:
+        if isinstance(data, dict):
+            files = data.get("files", data)
+        else:
+            files = data
+        entries: dict[str, str] = {}
+        if isinstance(files, dict):
+            for path, value in files.items():
+                if isinstance(value, str):
+                    entries[str(path)] = value
+                elif isinstance(value, dict) and isinstance(value.get("sha256"), str):
+                    entries[str(path)] = value["sha256"]
+        elif isinstance(files, list):
+            for item in files:
+                if not isinstance(item, dict) or not isinstance(item.get("sha256"), str):
+                    continue
+                rel_path = item.get("relative_path")
+                path = item.get("path")
+                if isinstance(rel_path, str):
+                    entries[rel_path] = item["sha256"]
+                elif isinstance(path, str):
+                    entries[self.repo_relative_manifest_path(path, repo)] = item["sha256"]
+        return entries
+
+    def repo_relative_manifest_path(self, path: str, repo: Path) -> str:
+        manifest_path = Path(path)
+        if manifest_path.is_absolute():
+            try:
+                return str(manifest_path.relative_to(repo))
+            except ValueError:
+                return path
+        return path
+
+    def sha256(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+
 def print_text(checks: list[Check]) -> None:
     symbols = {"pass": "PASS", "warn": "WARN", "fail": "FAIL"}
     for check in checks:
@@ -359,10 +632,14 @@ def main() -> int:
     parser.add_argument("--icontext-root", default="~/icontext")
     parser.add_argument("--query", default="OpenPaper citations academic")
     parser.add_argument("--deep", action="store_true", help="run slower gitleaks and GitHub checks")
+    parser.add_argument("--fresh-install", action="store_true", help="verify install.sh and uninstall.sh in temp git repos")
     parser.add_argument("--json", action="store_true", help="print machine-readable results")
     args = parser.parse_args()
 
-    doctor = Doctor(Path(args.repo), Path(args.icontext_root), args.query, args.deep)
+    if args.fresh_install:
+        doctor = FreshInstallDoctor(Path(args.icontext_root))
+    else:
+        doctor = Doctor(Path(args.repo), Path(args.icontext_root), args.query, args.deep)
     exit_code = doctor.run()
     if args.json:
         print(json.dumps([check.__dict__ for check in doctor.checks], indent=2))
