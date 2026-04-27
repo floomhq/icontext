@@ -559,6 +559,14 @@ class FreshInstallDoctor:
         if not entries:
             self.fail("fresh-install:manifest", f"{manifest}: no file entries")
             return
+        absolute_fields = self.manifest_absolute_fields(data)
+        if absolute_fields:
+            self.fail(
+                "fresh-install:manifest:privacy",
+                f"absolute local paths recorded: {', '.join(absolute_fields)}",
+            )
+        else:
+            self.pass_("fresh-install:manifest:privacy", "no absolute local paths recorded")
         expected_set = set(expected)
         manifest_paths = set(entries)
         missing = sorted(expected_set - manifest_paths)
@@ -576,6 +584,25 @@ class FreshInstallDoctor:
             self.fail("fresh-install:manifest", "; ".join(detail))
         else:
             self.pass_("fresh-install:manifest", f"{manifest.relative_to(repo)} covers {len(expected_set)} files")
+
+    def manifest_absolute_fields(self, data: object) -> list[str]:
+        if not isinstance(data, dict):
+            return []
+        fields: list[str] = []
+        for key in ["icontext_root", "vault"]:
+            value = data.get(key)
+            if isinstance(value, str) and Path(value).is_absolute():
+                fields.append(key)
+        files = data.get("files")
+        if isinstance(files, list):
+            for index, item in enumerate(files):
+                if not isinstance(item, dict):
+                    continue
+                for key in ["path", "source", "link_target"]:
+                    value = item.get(key)
+                    if isinstance(value, str) and Path(value).is_absolute():
+                        fields.append(f"files[{index}].{key}")
+        return fields
 
     def manifest_entries(self, data: object, repo: Path) -> dict[str, str]:
         if isinstance(data, dict):

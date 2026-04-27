@@ -84,6 +84,7 @@ from pathlib import Path
 manifest = Path(sys.argv[1])
 dry_run = sys.argv[2] == "1"
 data = json.loads(manifest.read_text(encoding="utf-8"))
+vault = manifest.parent.parent
 
 def sha256(path: Path) -> str | None:
     if not path.exists() or path.is_symlink():
@@ -103,31 +104,36 @@ def remove_path(path: Path) -> None:
         path.unlink()
 
 for entry in data.get("files", []):
-    path = Path(entry["path"])
+    rel = entry.get("relative_path")
+    if isinstance(rel, str) and rel:
+        path = vault / rel
+    else:
+        path = Path(entry["path"])
     kind = entry.get("kind")
+    label = entry.get("relative_path", path)
     if not path.exists() and not path.is_symlink():
-        print(f"  - already absent {entry.get('relative_path', path)}")
+        print(f"  - already absent {label}")
         continue
 
     if kind == "symlink":
         expected = entry.get("source")
         if not path.is_symlink():
-            print(f"  ! skip modified non-symlink {entry.get('relative_path', path)}")
+            print(f"  ! skip modified non-symlink {label}")
             continue
         if expected and str(path.resolve()) != expected:
-            print(f"  ! skip changed symlink {entry.get('relative_path', path)}")
+            print(f"  ! skip changed symlink {label}")
             continue
-        print(f"  - remove {entry.get('relative_path', path)}")
+        print(f"  - remove {label}")
         remove_path(path)
         continue
 
     expected_hash = entry.get("sha256")
     current_hash = sha256(path)
     if expected_hash and current_hash and current_hash != expected_hash:
-        print(f"  ! skip modified file {entry.get('relative_path', path)}")
+        print(f"  ! skip modified file {label}")
         continue
 
-    print(f"  - remove {entry.get('relative_path', path)}")
+    print(f"  - remove {label}")
     remove_path(path)
 
 if manifest.exists():
@@ -137,7 +143,7 @@ if manifest.exists():
 
 if not dry_run:
     for rel in [".icontext/mcp", ".icontext/scripts", ".icontext", ".github/workflows"]:
-        path = Path(data["vault"]) / rel
+        path = vault / rel
         try:
             path.rmdir()
         except OSError:

@@ -123,14 +123,16 @@ write_symlink() {
 
 write_marker() {
     local dst="$VAULT/.icontext-installed"
+    local source_commit=""
+    source_commit="$(git -C "$ICONTEXT_ROOT" rev-parse HEAD 2>/dev/null || true)"
     plan "+ .icontext-installed marker"
     add_manifest_entry "$dst" "" "generated"
     if [ "$DO_WRITE" -eq 1 ]; then
         cat > "$dst" <<EOF
 # icontext install marker
-icontext_root=$ICONTEXT_ROOT
 installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$MODE
+source_commit=$source_commit
 EOF
     fi
 }
@@ -182,24 +184,28 @@ for raw in lines.read_text(encoding="utf-8").splitlines():
     path_s, source_s, kind = raw.split("\t", 2)
     path = Path(path_s)
     source = Path(source_s) if source_s else None
+    try:
+        relative_path = str(path.relative_to(vault))
+    except ValueError:
+        relative_path = str(path)
+    try:
+        source_relative_path = str(source.relative_to(icontext_root)) if source else None
+    except ValueError:
+        source_relative_path = None
     entry = {
-        "path": str(path),
-        "relative_path": str(path.relative_to(vault)) if path.is_relative_to(vault) else str(path),
+        "relative_path": relative_path,
         "kind": kind,
-        "source": str(source) if source else None,
         "sha256": sha256(path),
         "source_sha256": sha256(source) if source else None,
     }
-    if path.is_symlink():
-        entry["link_target"] = str(path.resolve())
+    if source_relative_path:
+        entry["source_relative_path"] = source_relative_path
     entries.append(entry)
 
 payload = {
     "schema": 1,
     "tool": "icontext",
     "mode": mode,
-    "icontext_root": str(icontext_root),
-    "vault": str(vault),
     "icontext_commit": git_commit(icontext_root),
     "installed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "files": entries,

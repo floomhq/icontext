@@ -44,7 +44,8 @@ Install modes narrow the trust surface:
 - `agents` also updates selected local agent configs so those tools can call the
   local MCP server.
 
-The manifest records icontext-managed files for audit and uninstall. Run
+The manifest records icontext-managed files with repo-relative paths and hashes
+for audit and uninstall. It intentionally avoids absolute local home paths. Run
 `uninstall.sh --dry-run` to preview the manifest removals. Uninstall removes
 icontext-managed hooks, runtime files, root config, workflow, and manifest; it
 does not delete vault content.

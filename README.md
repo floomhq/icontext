@@ -122,7 +122,8 @@ selected local agent config files. Every mode creates or updates:
 - `.gitleaks.toml` and `.icontext-tiers.yml`
 - `.icontext/scripts/` and `.icontext/mcp/`
 - `.icontext-installed`
-- `.icontext/manifest.json`, the install manifest used for audit and uninstall
+- `.icontext/manifest.json`, the repo-relative install manifest used for audit
+  and uninstall
 
 `standard` and `agents` also create or update:
 
@@ -133,6 +134,9 @@ In `agents` mode it may also update `~/.claude/.mcp.json`,
 `~/.claude/settings.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json`, and
 `~/.config/opencode/opencode.json`. It does not upload vault data, start hosted
 services, or require an API key.
+
+The manifest intentionally records repo-relative file paths and hashes, not
+absolute local home paths.
 
 ## Agent Integrations
 
