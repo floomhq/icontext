@@ -13,6 +13,21 @@ proves the whole system works.
 without turning private notes, legal files, tax records, credentials, emails,
 PDFs, and strategy docs into prompt soup.
 
+## In Plain English
+
+Your AI tools are much more useful when they remember your real work.
+
+But your real work includes private documents, legal notes, admin files,
+strategy, credentials, and messy project history. That cannot just be pasted
+into prompts.
+
+`icontext` gives that context a safe home. It keeps sensitive files encrypted,
+checks for leaks before they reach GitHub, makes the useful parts searchable,
+and lets your coding agents ask for context when they need it.
+
+The goal is simple: **your AI assistants can help with the work, without your
+private operating context becoming a liability.**
+
 ## What You Get
 
 ```text
