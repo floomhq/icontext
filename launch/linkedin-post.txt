@@ -1,0 +1,52 @@
+I stopped treating AI like a chat box.
+
+The problem was never the model.
+
+The problem was memory.
+
+Every serious project has a private mess behind it:
+
+- strategy notes
+- old decisions
+- research
+- PDFs
+- legal docs
+- credentials
+- things you cannot paste into ChatGPT
+
+So every session starts the same way:
+
+"Here is the project."
+"Here is the folder."
+"Here is what we tried."
+"Here is the decision from last week."
+"Here is the thing you forgot yesterday."
+
+That is not agentic work.
+
+That is manual onboarding.
+
+So I built icontext.
+
+Plain English:
+
+A locked memory folder for AI tools.
+
+Claude Code, Codex, Cursor, and OpenCode can search the right project background without dumping the whole project into chat.
+
+Private files stay locked.
+Sensitive context stays separated.
+Secret checks run before GitHub.
+
+The shift is subtle but huge:
+
+I do not give AI everything.
+
+I give it the right memory.
+
+Bigger prompts were the wrong answer.
+
+Safer context is the unlock.
+
+Open source:
+https://github.com/floomhq/icontext

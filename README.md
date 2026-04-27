@@ -1,6 +1,6 @@
 # icontext
 
-[![CI](https://github.com/buildingopen/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/buildingopen/icontext/actions/workflows/ci.yml)
+[![CI](https://github.com/floomhq/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/floomhq/icontext/actions/workflows/ci.yml)
 
 **Encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode.**
 
@@ -96,7 +96,7 @@ The classifier enforces content matches folder. Secrets are never allowed anywhe
 ## Install
 
 ```bash
-git clone https://github.com/buildingopen/icontext ~/icontext
+git clone https://github.com/floomhq/icontext ~/icontext
 cd /path/to/your/context-repo
 bash ~/icontext/install.sh
 ```

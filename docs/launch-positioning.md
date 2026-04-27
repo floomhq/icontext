@@ -59,4 +59,4 @@ Markdown and too sensitive to paste into prompts.
 This changed how I work. My agents now have access to the context they need
 without turning my private operating system into prompt soup.
 
-Repo: https://github.com/buildingopen/icontext
+Repo: https://github.com/floomhq/icontext
