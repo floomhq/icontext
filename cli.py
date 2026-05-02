@@ -373,7 +373,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     _print("")
     _print(f"    {_c(C.BOLD, 'Populate my icontext profile from Gmail.')}")
     _print("")
-    _print(f"  {_c(C.DIM, \"That's it. Claude will use its Gmail MCP to build your profile.\")}")
+    _print(f"  {_c(C.DIM, 'That is it. Claude will use its Gmail MCP to build your profile.')}")
     _print("")
     _print(f"  {_c(C.DIM, 'or, for headless setups (requires GEMINI_API_KEY):')}")
     _print("    icontext connect gmail")
