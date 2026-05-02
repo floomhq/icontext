@@ -224,6 +224,51 @@ def _name_for(addr: str, name_hints: dict[str, str]) -> str:
     return name_hints.get(addr, "")
 
 
+# Local-parts that almost always indicate a forward-to-self address.
+_SELF_LOCAL_HINTS = {"fede", "federico", "fedeponte", "depontefede", "me", "self"}
+
+
+def _detect_own_addresses(
+    messages: list[dict], primary_addresses: set[str],
+) -> set[str]:
+    """Find addresses that look like the user's own (forwards-to-self).
+
+    Heuristic: if the user's primary address appears in a sent message's From,
+    treat any other To address whose local-part overlaps with the primary's
+    local-part OR matches a known self-hint (fede/federico/...) as an alias.
+    """
+    own = {a.lower() for a in primary_addresses if a}
+    if not own:
+        return own
+
+    primary_locals = {a.split("@", 1)[0].lower() for a in own}
+    expanded_locals = primary_locals | _SELF_LOCAL_HINTS
+
+    for msg in messages:
+        if msg.get("direction") != "sent":
+            continue
+        from_addrs = {a.lower() for a in msg.get("from_addrs", [])}
+        # Only trust the heuristic when this message was actually sent BY us.
+        if not (from_addrs & own):
+            continue
+        for addr in msg.get("to", []) + msg.get("cc", []):
+            addr_lc = (addr or "").lower()
+            if not addr_lc or "@" not in addr_lc:
+                continue
+            local = addr_lc.split("@", 1)[0]
+            # Match: identical local-part to primary, OR a known self-hint
+            # that overlaps with the primary local-part (so 'fede' on
+            # depontefede matches, but a random 'me@somewhere' doesn't).
+            if local in primary_locals:
+                own.add(addr_lc)
+                continue
+            if local in _SELF_LOCAL_HINTS and any(
+                local in pl or pl in local for pl in primary_locals
+            ):
+                own.add(addr_lc)
+    return own
+
+
 def _build_compact_facts(
     all_messages: list[dict], own_addresses: set[str], scan_days: int,
 ) -> dict:
@@ -437,6 +482,12 @@ def _extract_prompt(facts: dict, seed: str | None) -> str:
         "- name: use the display name observed in the data when available; "
         "fall back to local-part of email if no name was observed.\n"
         "- topics: short noun phrases that recur across multiple subjects.\n"
+        "- For EACH person, do your best to fill role AND context using the subjects "
+        "array and the email domain. role: a short phrase like 'Lawyer (immigration)', "
+        "'Investor at Founders Inc', 'Ops collaborator'. context: cite a subject pattern, "
+        "e.g. 'Schedules I-589 filings', 'Discusses Floom roadmap'. If the evidence is "
+        "thin, fall back to listing the subject topic that connects you. Never leave "
+        "role or context as empty strings.\n"
         "- Be specific. Use real names from the data. No filler.\n"
         f"{seed_block}"
         "\n"
@@ -448,6 +499,77 @@ def _extract_prompt(facts: dict, seed: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Stage B — Local validation
 # ---------------------------------------------------------------------------
+
+_PENDING_STOPWORDS = {
+    "the", "a", "an", "to", "for", "of", "and", "or", "with", "on", "in",
+    "at", "from", "by", "is", "be", "are", "was", "were", "fix", "address",
+    "resolve", "handle", "deal", "follow", "follow-up", "followup", "reply",
+    "respond", "your", "my",
+}
+
+
+def _pending_tokens(item: str) -> set[str]:
+    """Lowercase content tokens (>= 3 chars, not stopwords) for fuzzy dedup."""
+    raw = re.findall(r"[A-Za-z0-9]+", (item or "").lower())
+    return {t for t in raw if len(t) >= 3 and t not in _PENDING_STOPWORDS}
+
+
+def _dedupe_pending(items: list[str], limit: int = 5) -> list[str]:
+    """Drop pending items that describe the same underlying issue.
+
+    Two items collide if (a) one is a case-insensitive substring of the other,
+    or (b) their content-token sets overlap by >= 60% (Jaccard). Prefers the
+    longer / more specific phrasing. Order-stable on the survivors.
+    """
+    cleaned = [i.strip() for i in (items or []) if i and i.strip()]
+    if not cleaned:
+        return []
+
+    accepted: list[str] = []
+    accepted_tokens: list[set[str]] = []
+
+    for item in cleaned:
+        item_lc = item.lower()
+        item_tok = _pending_tokens(item)
+
+        replaced_idx = -1
+        skip = False
+        for i, kept in enumerate(accepted):
+            kept_lc = kept.lower()
+            kept_tok = accepted_tokens[i]
+
+            substring_hit = (item_lc in kept_lc) or (kept_lc in item_lc)
+            if substring_hit:
+                if len(item) > len(kept):
+                    replaced_idx = i
+                else:
+                    skip = True
+                break
+
+            # Token-overlap fuzzy match — only meaningful if both items have
+            # at least 2 content tokens.
+            if len(item_tok) >= 2 and len(kept_tok) >= 2:
+                inter = item_tok & kept_tok
+                union = item_tok | kept_tok
+                jaccard = len(inter) / len(union) if union else 0.0
+                if jaccard >= 0.6:
+                    if len(item) > len(kept):
+                        replaced_idx = i
+                    else:
+                        skip = True
+                    break
+
+        if skip:
+            continue
+        if replaced_idx >= 0:
+            accepted[replaced_idx] = item
+            accepted_tokens[replaced_idx] = item_tok
+            continue
+        accepted.append(item)
+        accepted_tokens.append(item_tok)
+
+    return accepted[:limit]
+
 
 def _validate_entities(extracted: dict, facts: dict) -> dict:
     """Drop low-confidence entities, dedupe, attach hard metrics."""
@@ -541,7 +663,9 @@ _PROFILE_SCHEMA = {
                     "warmth": {"type": "string", "enum": ["hot", "warm", "cold"]},
                     "context": {"type": "string"},
                 },
-                "required": ["name"],
+                # role and context are REQUIRED — Stage C must always fill them
+                # using subject evidence, not leave them blank.
+                "required": ["name", "role", "context"],
             },
         },
         "recurring_topics": {"type": "array", "items": {"type": "string"}},
@@ -573,10 +697,27 @@ def _profile_prompt(validated: dict, facts: dict, seed: str | None) -> str:
     seed_block = ""
     if seed:
         seed_block = f"\nUSER_SEED (use this to ground identity_summary and project names):\n{seed}\n"
-    # Trim facts payload — only top_threads + top_domains needed as fallback evidence.
+    # Trim facts payload — top_threads + top_domains for fallback evidence,
+    # plus a small slice of counterparties so Stage C can build comm-patterns
+    # using real top inbound / outbound names.
     fallback = {
         "top_threads": facts.get("top_threads", [])[:25],
         "top_domains": facts.get("top_domains", [])[:10],
+        "top_inbound": [
+            {"name": cp.get("name") or cp["email"].split("@", 1)[0],
+             "email": cp["email"], "count": cp["inbound"]}
+            for cp in facts.get("counterparties", [])
+            if cp.get("inbound", 0) > 0
+        ][:5],
+        "top_outbound": [
+            {"name": cp.get("name") or cp["email"].split("@", 1)[0],
+             "email": cp["email"], "count": cp["outbound"]}
+            for cp in sorted(
+                facts.get("counterparties", []),
+                key=lambda c: -c.get("outbound", 0),
+            )
+            if cp.get("outbound", 0) > 0
+        ][:5],
     }
     return (
         "You are writing a structured user profile for a coding assistant. "
@@ -587,16 +728,24 @@ def _profile_prompt(validated: dict, facts: dict, seed: str | None) -> str:
         "- Plain second-person ('You email Cedrik weekly about Floom').\n"
         "- BANNED words: 'leveraging', 'leverage', 'innovating', 'pioneering', 'driving', "
         "'spearheading', 'forging strategic partnerships', 'ecosystem', 'AI-native', "
-        "'cutting-edge', 'robust', 'seamless', 'empower'.\n"
+        "'cutting-edge', 'robust', 'seamless', 'empower', 'passionate about'.\n"
         "- No buzzword stacks. Short sentences. Specific names and counts.\n"
-        "- shareable_card: under 120 words, no email addresses, no relationship names — "
-        "just role, current focus, background. Safe to share publicly.\n"
         "\n"
         "GROUNDING RULES:\n"
         "- key_relationships: one row per person in validated.people. Use evidence and "
         "direction fields. frequency: >=8 messages = 'weekly', 4-7 = 'monthly', "
         "2-3 = 'occasional'. warmth: 'hot' if outbound >= 3 OR direction='you_send' with "
         "evidence >= 3; 'warm' if any outbound or balanced; 'cold' if inbound-only.\n"
+        "- For EVERY relationship row, you MUST fill BOTH role AND context. Never leave "
+        "them blank. Infer them from the subjects array on each person and the email "
+        "domain. Examples:\n"
+        "    role examples: 'Lawyer (immigration cases)', 'Investor at Founders Inc', "
+        "'Ops collaborator at Floom', 'Founder at Every', 'Engineer at Anthropic'.\n"
+        "    context examples: 'Discusses I-589 filings and case updates', "
+        "'Schedules calls about funding rounds', 'Coordinates Floom v26 launch'.\n"
+        "  If the evidence is genuinely thin, fall back to citing the subject pattern, "
+        "e.g. role='Unknown — pattern only' and context='Subjects: \"CLI release\", "
+        "\"deploy issue\"'. NEVER output an empty role or context.\n"
         "- active_projects: include every entry in validated.projects. If USER_SEED names "
         "projects (e.g. Floom, Rocketlist, OpenPaper) AND the FALLBACK_THREADS contain "
         "subjects that mention those names, also list them as active projects. "
@@ -604,15 +753,42 @@ def _profile_prompt(validated: dict, facts: dict, seed: str | None) -> str:
         "'in early users', based on subject evidence.\n"
         "- recurring_topics: real noun phrases from the data (e.g. 'Foreign founder application', "
         "'CLI releases', 'failed Vercel payments') — NOT single words like 'AI' or 'payment'.\n"
-        "- pending_items: short, specific, name the thing. Skip generic items.\n"
-        "- communication_patterns: 2-3 sentences max. Concrete numbers if available.\n"
+        "- pending_items: short, specific, name the thing. Skip generic items. Do NOT "
+        "emit two items that describe the same underlying issue (e.g. 'Fix Vercel payment' "
+        "and 'Address Vercel payment failure' — pick ONE, the more specific phrasing).\n"
+        "- communication_patterns: 3-4 specific sentences. Cover: "
+        "(1) who you initiate contact with most — name the top 2-3 outbound recipients "
+        "from FALLBACK_THREADS.top_outbound; "
+        "(2) who initiates contact with you most — name the top 2-3 inbound senders "
+        "from FALLBACK_THREADS.top_inbound; "
+        "(3) the dominant topic / domain split (e.g. 'Most outbound is product and legal "
+        "coordination; most inbound is automated notifications and partner threads'); "
+        "(4) response style if it can be inferred from threading (e.g. 'You usually reply "
+        "within 24 hours on partner threads'). Use real names from the data.\n"
+        "\n"
+        "SHAREABLE CARD (strict format — max 200 words total):\n"
+        "Federico will paste this into other AI sessions or send to collaborators who "
+        "know nothing about him. Write in plain second-person. No corporate filler, no "
+        "'passionate about', no 'pioneering'. Use his actual voice from his actual "
+        "subjects.\n"
+        "Required structure (use these EXACT bold labels and Markdown headings):\n"
+        "    # {Name}\n"
+        "\n"
+        "    **Building:** {1 line — what they're working on right now, with the project name}\n"
+        "    **Background:** {2 sentences — past company / role / scale}\n"
+        "    **Currently focused on:** {bullet list, 3-5 items, each one line, drawn from active_projects + recurring_topics + pending_items}\n"
+        "    **Best way to work with them:** {2 sentences — async vs sync, fast vs deliberate, what they delegate vs decide themselves, inferred from communication_patterns}\n"
+        "No email addresses, no full names of contacts. Safe to share publicly.\n"
         f"{seed_block}"
         "\n"
-        "VALIDATED DATA (people + projects after dedup and filter):\n"
+        "VALIDATED DATA (people + projects after dedup and filter — every person here "
+        "MUST appear as a key_relationships row with role AND context filled):\n"
         f"{json.dumps(validated, indent=2, default=str)}\n"
         "\n"
-        "FALLBACK_THREADS (top normalized subjects from the inbox; use these to corroborate "
-        "USER_SEED projects and to build recurring_topics / pending_items):\n"
+        "FALLBACK_THREADS (top normalized subjects, top inbound senders, top outbound "
+        "recipients; use these to corroborate USER_SEED projects, write "
+        "communication_patterns with real names, and build recurring_topics / "
+        "pending_items):\n"
         f"{json.dumps(fallback, indent=2, default=str)}\n"
     )
 
@@ -762,6 +938,12 @@ def run_pipeline(
     `connector` provides gemini_call_with_retry; tests can pass a mock.
     `all_messages` items must already include 'direction' ('inbox' or 'sent').
     """
+    # Expand own_addresses to catch forwards-to-self (e.g. fede@floom.dev when
+    # the configured account is depontefede@gmail.com). Without this, the user's
+    # own forwarding aliases get treated as external recipients and pollute the
+    # relationships table.
+    own_addresses = _detect_own_addresses(all_messages, set(own_addresses))
+
     facts = _build_compact_facts(all_messages, own_addresses, scan_days)
 
     extract_prompt = _extract_prompt(facts, seed)
@@ -775,6 +957,20 @@ def run_pipeline(
     profile = connector.gemini_call_with_retry(profile_prompt, schema=_PROFILE_SCHEMA)
     if not isinstance(profile, dict):
         raise RuntimeError("Stage C did not return a dict from Gemini.")
+
+    # Post-process: collapse near-duplicate pending items (Gemini sometimes
+    # emits "Fix payment for Vercel" + "Address Vercel payment failure").
+    profile["pending_items"] = _dedupe_pending(profile.get("pending_items") or [])
+
+    # Belt-and-suspenders: drop any relationship row whose email is in the
+    # expanded own_addresses set. Stage C is told to skip them, but the model
+    # occasionally surfaces them anyway, especially when they had heavy
+    # outbound traffic (forwards-to-self look like real sent mail).
+    own_lc = {a.lower() for a in own_addresses}
+    profile["key_relationships"] = [
+        r for r in (profile.get("key_relationships") or [])
+        if (r.get("email") or "").lower() not in own_lc
+    ]
 
     return facts, validated, profile
 

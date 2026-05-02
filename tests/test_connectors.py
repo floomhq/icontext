@@ -780,6 +780,164 @@ class TestRunPipeline(unittest.TestCase):
         self.assertEqual(profile["identity_summary"], "You build Floom.")
 
 
+class TestDetectOwnAddresses(unittest.TestCase):
+
+    def test_detects_forward_to_self_alias(self):
+        """fede@floom.dev should be flagged as own when sent FROM depontefede."""
+        from connectors.gmail import _detect_own_addresses
+        msgs = [
+            {
+                "direction": "sent",
+                "from_addrs": ["depontefede@gmail.com"],
+                "to": ["fede@floom.dev"],
+                "cc": [],
+            },
+        ]
+        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
+        self.assertIn("fede@floom.dev", own)
+        self.assertIn("depontefede@gmail.com", own)
+
+    def test_does_not_flag_real_recipients(self):
+        """A normal recipient with no name overlap stays external."""
+        from connectors.gmail import _detect_own_addresses
+        msgs = [
+            {
+                "direction": "sent",
+                "from_addrs": ["depontefede@gmail.com"],
+                "to": ["cedrik@floom.dev"],
+                "cc": [],
+            },
+        ]
+        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
+        self.assertNotIn("cedrik@floom.dev", own)
+
+    def test_ignores_inbox_messages(self):
+        """An inbox From: matching ourselves should not be used to learn aliases."""
+        from connectors.gmail import _detect_own_addresses
+        msgs = [
+            {
+                "direction": "inbox",
+                "from_addrs": ["spoofed@evil.com"],
+                "to": ["fede@floom.dev"],
+                "cc": [],
+            },
+        ]
+        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
+        self.assertNotIn("fede@floom.dev", own)
+
+
+class TestDedupePending(unittest.TestCase):
+
+    def test_collapses_substring_duplicates(self):
+        from connectors.gmail import _dedupe_pending
+        items = ["Fix payment for Vercel", "Address Vercel payment failure"]
+        result = _dedupe_pending(items)
+        # One survives, and it's the more specific phrasing.
+        self.assertEqual(len(result), 1)
+
+    def test_keeps_distinct_items(self):
+        from connectors.gmail import _dedupe_pending
+        items = ["Fix Vercel payment", "Reply to John Melas-Kyriazi", "Submit I-589"]
+        result = _dedupe_pending(items)
+        self.assertEqual(len(result), 3)
+
+    def test_caps_at_limit(self):
+        from connectors.gmail import _dedupe_pending
+        items = [f"Item {i}" for i in range(10)]
+        result = _dedupe_pending(items, limit=5)
+        self.assertEqual(len(result), 5)
+
+    def test_filters_empty_and_whitespace(self):
+        from connectors.gmail import _dedupe_pending
+        items = ["", "  ", "Fix X"]
+        self.assertEqual(_dedupe_pending(items), ["Fix X"])
+
+
+class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
+
+    def test_self_address_filtered_after_stage_c(self):
+        """If Gemini emits fede@floom.dev as a relationship, the pipeline drops it."""
+        from connectors.gmail import run_pipeline
+        connector = MagicMock()
+        connector.gemini_call_with_retry.side_effect = [
+            # Stage A — extracted entities
+            {
+                "people": [
+                    {"name": "Cedrik", "email": "cedrik@example.com",
+                     "evidence_messages": 5, "direction": "balanced",
+                     "topics": []},
+                ],
+                "projects": [],
+                "topics": [],
+            },
+            # Stage C — profile (model accidentally surfaces fede@floom.dev)
+            {
+                "identity_summary": "You build Floom.",
+                "key_relationships": [
+                    {"name": "Cedrik", "email": "cedrik@example.com",
+                     "company": "Floom", "role": "Co-founder",
+                     "frequency": "weekly", "warmth": "hot",
+                     "context": "Daily collab"},
+                    {"name": "fede@floom.dev", "email": "fede@floom.dev",
+                     "company": "floom.dev", "role": "Self forward",
+                     "frequency": "monthly", "warmth": "hot",
+                     "context": "Self-forward alias"},
+                ],
+                "recurring_topics": ["Floom"],
+                "active_projects": [{"name": "Floom"}],
+                "communication_patterns": "Outbound to team.",
+                "pending_items": [
+                    "Fix Vercel payment",
+                    "Resolve Vercel payment failure",
+                ],
+                "shareable_card": "Builds Floom.",
+            },
+        ]
+        msgs = [
+            {
+                "direction": "sent",
+                "subject": "Forward",
+                "from_addrs": ["me@example.com"],
+                "from_pairs": [("Me", "me@example.com")],
+                "to": ["fede@me.com"],   # alias (same local-part 'me')
+                "to_pairs": [("Me alias", "fede@me.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            },
+            {
+                "direction": "sent",
+                "subject": "Floom plan",
+                "from_addrs": ["me@example.com"],
+                "from_pairs": [("Me", "me@example.com")],
+                "to": ["cedrik@example.com"],
+                "to_pairs": [("Cedrik", "cedrik@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            },
+            {
+                "direction": "inbox",
+                "subject": "Re: Floom plan",
+                "from_addrs": ["cedrik@example.com"],
+                "from_pairs": [("Cedrik", "cedrik@example.com")],
+                "to": ["me@example.com"],
+                "to_pairs": [("Me", "me@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 02 Apr 2024 12:00:00 +0000",
+            },
+        ]
+        # Note: we pass fede@floom.dev as a relationship that Gemini hallucinated
+        # in Stage C even though the detection set covers a different alias —
+        # the post-Stage-C filter still drops anything in own_addresses.
+        facts, validated, profile = run_pipeline(
+            connector, msgs, {"me@example.com"}, scan_days=90,
+        )
+        # Pending items deduped to 1.
+        self.assertEqual(len(profile["pending_items"]), 1)
+        # No relationship row whose email is in own_addresses.
+        for r in profile["key_relationships"]:
+            self.assertNotIn(r.get("email", "").lower(), facts.get("own_addresses", []))
+
+
 class TestGeminiRetryWrapper(unittest.TestCase):
 
     def test_retries_on_transient_failure_then_succeeds(self):
