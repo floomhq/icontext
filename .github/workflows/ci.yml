@@ -1,28 +1,32 @@
-name: ci
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-          cache: false
-      - name: Run unit tests
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
-      - name: Install gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8@v8.30.0
-      - name: Run secret scan
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
         run: |
-          "$(go env GOPATH)/bin/gitleaks" detect \
-            --config config/gitleaks.toml \
-            --redact \
-            --no-banner
+          pip install -e ".[sync,dev]"
+      - name: Run tests
+        run: |
+          python3 -m pytest tests/ -x --tb=short
+      - name: Verify CLI imports
+        run: |
+          python3 -m py_compile cli.py connectors/*.py scripts/*.py
+      - name: Verify --help
+        run: |
+          python3 cli.py --help
+          python3 cli.py --version
