@@ -1,36 +1,56 @@
-# Security Policy
+# Security & Privacy
 
-## Supported Versions
+## Threat model
 
-`main` is the supported branch.
+iContext stores sensitive personal data — email metadata, professional profile, synthesized identity. This document explains what we protect against, what we don't, and what you should know.
 
-## Reporting a Vulnerability
+### What iContext protects against
 
-Do not open a public issue for suspected secret leakage, encryption bypasses, or
-prompt-context exposure.
+- **Cloud breach**: Your data is never sent to any iContext server. There is no iContext server.
+- **Synthesis provider breach**: Only the synthesized profile is sent to Gemini for processing. Raw email contents are never sent.
+- **Repo leak (vault tier)**: Files in `vault/` are encrypted with git-crypt before commit. A leaked Git remote does not expose vault contents.
+- **Pre-commit secret leak**: `gitleaks` runs as a pre-commit hook to catch credentials.
 
-Use GitHub private vulnerability reporting when available, or contact the
-maintainer directly with:
+### What iContext does NOT protect against
 
-- affected version or commit
-- reproduction steps
-- expected impact
-- any logs with secrets redacted
+- **Local machine compromise**: If your machine is compromised, all unencrypted vault tiers (`shareable/`, `internal/`) are accessible. Use full-disk encryption (FileVault on macOS).
+- **Repo leak (other tiers)**: Files in `shareable/` and `internal/` are NOT encrypted in Git. Don't push your vault to a public repo.
+- **App password compromise**: Gmail App Passwords are stored in your OS keychain, but they grant IMAP access. Treat them like passwords. Revoke at https://myaccount.google.com/apppasswords if compromised.
+- **Gemini provider risk**: Synthesized profile content is sent to Google's Gemini API for processing. See Google's data handling: https://ai.google.dev/gemini-api/terms
 
-## Security Model
+## What data is read
 
-`icontext` protects a private Git-backed context vault with layered controls:
+### From Gmail (IMAP, headers only)
 
-- `gitleaks` blocks secrets before commit and in GitHub Actions.
-- `git-crypt` encrypts `vault/**` in Git history and on GitHub.
-- deterministic tier checks block sensitive content in lower-trust folders.
-- Claude passive prompt injection excludes `vault/` by default.
-- explicit MCP tools are available for intentional vault search and reads.
+- Sender, recipient, subject line, date — for the last 90 days
+- **NOT read**: message bodies, attachments, contact lists, settings
 
-Local plaintext exists after `git-crypt unlock`. Protect your workstation and
-the exported git-crypt key accordingly.
+### From LinkedIn (PDF only)
 
-## Installer Trust Model
+- Whatever appears in the "Save to PDF" export of your profile (work history, education, skills, headline)
+- **NOT read**: messages, connections list, feed activity, ads
+
+## What data is stored
+
+| Data | Where | Encrypted at rest |
+|---|---|---|
+| Gmail App Password | OS keychain (macOS Keychain / Linux Secret Service) | Yes (OS-managed) |
+| Synthesized profile | `internal/profile/user.md` | No (use FileVault) |
+| LinkedIn profile | `internal/profile/linkedin.md` | No (use FileVault) |
+| Context card | `shareable/profile/context-card.md` | No (designed to be shared) |
+| Connector config | `.icontext/connectors.json` | No (no secrets stored) |
+
+## What data leaves your machine
+
+| Destination | What | When |
+|---|---|---|
+| imap.gmail.com | Your Gmail credentials, your IMAP queries | During `icontext sync gmail` |
+| generativelanguage.googleapis.com | Synthesized email summary (no raw content), LinkedIn PDF text | During `icontext sync` |
+| Nothing else | — | — |
+
+iContext makes no other network requests.
+
+## Installer trust model
 
 Run installs with `--dry-run` to inspect the exact plan before files change.
 Without `--yes`, install uses an interactive confirmation gate. Use `--yes` only
@@ -54,3 +74,9 @@ Agent installation does not grant a remote service new direct access by itself.
 It writes local MCP and hook configuration for tools already running under your
 user account. Claude passive prompt context excludes `vault/` by default, while
 explicit MCP reads remain intentional actions by the agent/tool you enabled.
+
+## Reporting a vulnerability
+
+Email security@floom.dev with details. We will respond within 48 hours.
+
+Do not file public GitHub issues for security vulnerabilities.

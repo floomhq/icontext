@@ -60,6 +60,24 @@ into prompts and too important to leave invisible.
 - **available to Claude Code, Codex, Cursor, and OpenCode** through one MCP server
 - **verified end to end** by one `doctor.py` command
 
+## Privacy
+
+iContext reads:
+- Email metadata (sender, subject, date) from the last 90 days. **Never message bodies.**
+- The text content of your LinkedIn PDF.
+
+iContext stores:
+- Your synthesized profile in `~/context/internal/profile/`. This is not encrypted at rest — use FileVault.
+- Your Gmail App Password in your OS keychain. Never in plaintext.
+
+iContext sends to Gemini:
+- A summary of email metadata for synthesis. No raw message content.
+- Your LinkedIn PDF text.
+
+iContext does not run a server. No data is ever sent to any iContext-controlled endpoint.
+
+Full threat model: see [SECURITY.md](SECURITY.md).
+
 ## Features
 
 | Layer | What icontext does |
@@ -205,6 +223,8 @@ manifest removals before deleting files.
 - A free Gemini API key: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ## Status: Production-ready. Run `icontext doctor` to verify your install.
+
+> Social preview image at `assets/og-image.png` — upload via Settings → Social preview
 
 ## Built with icontext
 
