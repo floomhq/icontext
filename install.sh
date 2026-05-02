@@ -236,6 +236,12 @@ install_actions() {
     done
     copy_file "$ICONTEXT_ROOT/mcp/server.py" "$VAULT/.icontext/mcp/server.py" ".icontext/mcp/server.py" 1
 
+    # Copy connectors
+    for connector in __init__.py base.py gmail.py linkedin.py; do
+        copy_file "$ICONTEXT_ROOT/connectors/$connector" "$VAULT/.icontext/connectors/$connector" ".icontext/connectors/$connector"
+    done
+    copy_file "$ICONTEXT_ROOT/cli.py" "$VAULT/.icontext/cli.py" ".icontext/cli.py" 1
+
     if [ "$MODE" = "standard" ] || [ "$MODE" = "agents" ]; then
         for hook in pre-commit pre-push post-commit; do
             write_symlink "$ICONTEXT_ROOT/hooks/$hook" "$VAULT/.git/hooks/$hook" ".git/hooks/$hook"
@@ -286,6 +292,12 @@ install_actions
 if [ "$MODE" = "agents" ]; then
     echo "icontext: installing agent integrations"
     python3 "$VAULT/.icontext/scripts/install_claude_integration.py" --icontext-root "$ICONTEXT_ROOT" --repo "$VAULT"
+    # Symlink icontext CLI to PATH
+    if [ -d "$HOME/.local/bin" ] || mkdir -p "$HOME/.local/bin"; then
+        ln -sf "$VAULT/.icontext/cli.py" "$HOME/.local/bin/icontext"
+        chmod +x "$VAULT/.icontext/cli.py"
+        echo "icontext: CLI available at ~/.local/bin/icontext"
+    fi
 fi
 
 echo ""

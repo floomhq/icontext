@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "icontext"
+version = "0.2.0"
+description = "Encrypted AI context vault with data source connectors"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+icontext = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["connectors"]

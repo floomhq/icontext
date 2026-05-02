@@ -16,3 +16,6 @@ __pycache__/
 *.key
 credentials*
 secrets*
+
+# Connector credentials (app passwords, export paths) — never commit.
+.icontext/connectors.json
