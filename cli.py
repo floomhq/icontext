@@ -367,18 +367,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         if not (icontext_dir / ".git").exists():
             _print(_info("cloning floomhq/icontext..."))
-            # TEMPORARY: pin to feat branch until PR #1 merges to main
-            # REMOVE branch pin once PR #1 merges to main
-            clone_result = _sp.run(
-                ["git", "clone", "--quiet", "--branch", "feat/connectors-cli",
-                 "https://github.com/floomhq/icontext", str(icontext_dir)],
+            _sp.run(
+                ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
                 check=False,
             )
-            if clone_result.returncode != 0:
-                _sp.run(
-                    ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
-                    check=False,
-                )
         install_sh = icontext_dir / "install.sh"
         if install_sh.exists():
             result = _sp.run(
