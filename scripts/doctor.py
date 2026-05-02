@@ -30,6 +30,35 @@ class Doctor:
         self.query = query
         self.deep = deep
         self.checks: list[Check] = []
+        # Detect install mode. Skills-first (default for v0.2+) skips legacy
+        # standard-mode checks (git hooks in vault, .gitleaks.toml in vault,
+        # MCP server registered with vault path, etc.) since those only apply
+        # when install.sh was run with --mode standard.
+        self.skills_first = self._detect_skills_first()
+
+    def _detect_skills_first(self) -> bool:
+        """Skills-first mode is the default for `icontext init`. Signal: at
+        least one icontext skill installed in ~/.claude/skills/, AND no legacy
+        marker present in the vault."""
+        skills_dir = Path("~/.claude/skills").expanduser()
+        has_skills = skills_dir.is_dir() and any(
+            (skills_dir / f"icontext-{name}/SKILL.md").is_file()
+            for name in ("populate-profile", "refresh-profile", "share-card")
+        )
+        legacy_marker = self.repo / ".icontext" / "manifest.json"
+        return has_skills and not legacy_marker.exists()
+
+    def _legacy_check(self, name: str, status: str, detail: str) -> None:
+        """In skills-first mode, downgrade failures of legacy-only checks
+        to warns with a note so users aren't alarmed by missing vault hooks."""
+        if self.skills_first and status == "fail":
+            self.warn(name, f"{detail} (legacy-mode only — not required for skills-first install)")
+        elif status == "fail":
+            self.fail(name, detail)
+        elif status == "warn":
+            self.warn(name, detail)
+        else:
+            self.pass_(name, detail)
 
     def pass_(self, name: str, detail: str) -> None:
         self.checks.append(Check(name, "pass", detail))
@@ -72,12 +101,20 @@ class Doctor:
         )
 
     def check_prereqs(self) -> None:
-        for command in ["git", "python3", "gitleaks", "git-crypt", "git-lfs"]:
+        # Required for any mode
+        for command in ["git", "python3"]:
             path = shutil.which(command)
             if path:
                 self.pass_(f"command:{command}", path)
             else:
                 self.fail(f"command:{command}", "not found on PATH")
+        # Optional: only required for legacy standard-mode install
+        for command in ["gitleaks", "git-crypt", "git-lfs"]:
+            path = shutil.which(command)
+            if path:
+                self.pass_(f"command:{command}", path)
+            else:
+                self._legacy_check(f"command:{command}", "fail", "not found on PATH")
 
     def check_repo(self) -> None:
         if not (self.repo / ".git").exists():
@@ -96,13 +133,13 @@ class Doctor:
             path = self.repo / ".git" / "hooks" / hook
             target = self.icontext_root / "hooks" / hook
             if not path.exists():
-                self.fail(f"hook:{hook}", "missing")
+                self._legacy_check(f"hook:{hook}", "fail", "missing")
                 continue
             if not path.resolve() == target.resolve():
-                self.fail(f"hook:{hook}", f"points to {path.resolve()}, expected {target}")
+                self._legacy_check(f"hook:{hook}", "fail", f"points to {path.resolve()}, expected {target}")
                 continue
             if not path.stat().st_mode & 0o111:
-                self.fail(f"hook:{hook}", "not executable")
+                self._legacy_check(f"hook:{hook}", "fail", "not executable")
                 continue
             self.pass_(f"hook:{hook}", str(target))
 
@@ -112,7 +149,7 @@ class Doctor:
             if path.exists():
                 self.pass_(f"repo-config:{rel}", "present")
             else:
-                self.fail(f"repo-config:{rel}", "missing")
+                self._legacy_check(f"repo-config:{rel}", "fail", "missing")
 
     def check_gitcrypt(self) -> None:
         # Find the first tracked file in vault/ (if any) to test git-crypt attribute and encryption
@@ -176,7 +213,7 @@ class Doctor:
         db = self.repo / ".git" / "icontext" / "index.sqlite"
         marker = self.repo / ".git" / "icontext" / "last-indexed"
         if not db.exists():
-            self.fail("index:sqlite", "missing")
+            self._legacy_check("index:sqlite", "fail", "missing — run: icontext rebuild")
             return
         count = marker.read_text(encoding="utf-8").strip() if marker.exists() else "unknown"
         self.pass_("index:sqlite", f"{db} ({count} indexed text files)")
@@ -233,7 +270,7 @@ class Doctor:
             return
         text = responses[-1]["result"]["content"][0]["text"]
         if text == "[]":
-            self.fail("mcp:search", f"no results for {self.query!r}")
+            self._legacy_check("mcp:search", "fail", f"no results for {self.query!r} — run: icontext rebuild")
         else:
             self.pass_("mcp:search", f"{len(text)} response chars for {self.query!r}")
 
@@ -292,10 +329,14 @@ class Doctor:
                 actual = actual[1:]
             if actual == expected_args:
                 self.pass_(name, str(path))
+            elif self.skills_first and "icontext" in str(actual):
+                # Skills-first: each `icontext init` registers MCP for that vault.
+                # If icontext is registered at all, the user is wired up.
+                self.pass_(name, f"{path} (registered for a different vault)")
             else:
-                self.fail(name, f"unexpected args: {actual}")
+                self._legacy_check(name, "fail", f"unexpected args: {actual}")
         except Exception as exc:
-            self.fail(name, str(exc))
+            self._legacy_check(name, "fail", str(exc))
 
     def _check_codex(self, expected_args: list[str]) -> None:
         path = Path("~/.codex/config.toml").expanduser()
@@ -304,17 +345,21 @@ class Doctor:
             server = data["mcp_servers"]["icontext"]
             if server.get("command") == "python3" and server.get("args") == expected_args:
                 self.pass_("codex:mcp", str(path))
+            elif self.skills_first and server.get("command") == "python3":
+                self.pass_("codex:mcp", f"{path} (registered for a different vault)")
             else:
-                self.fail("codex:mcp", f"unexpected config: {server}")
+                self._legacy_check("codex:mcp", "fail", f"unexpected config: {server}")
         except Exception as exc:
-            self.fail("codex:mcp", str(exc))
+            self._legacy_check("codex:mcp", "fail", str(exc))
 
     def check_native_clients(self) -> None:
         codex = self.command(["codex", "mcp", "get", "icontext"], cwd=Path.home(), timeout=15)
         if codex.returncode == 0 and str(self.repo) in codex.stdout:
             self.pass_("codex:native", "codex mcp get icontext")
+        elif self.skills_first and codex.returncode == 0 and "icontext" in codex.stdout:
+            self.pass_("codex:native", "codex has icontext registered (for a different vault)")
         else:
-            self.fail("codex:native", codex.stdout.strip())
+            self._legacy_check("codex:native", "fail", codex.stdout.strip())
 
         opencode = self.command(["opencode", "mcp", "list"], cwd=Path.home(), timeout=45)
         if opencode.returncode == 0 and "icontext" in opencode.stdout and "connected" in opencode.stdout:
@@ -524,11 +569,19 @@ class Doctor:
                 self.fail("claude:mcp.json", f"cannot parse {mcp_json}: {exc}")
 
     def check_secret_scan(self) -> None:
-        result = self.command(["gitleaks", "dir", ".", "--config", ".gitleaks.toml", "--redact", "--no-banner"], timeout=60)
+        config_arg = []
+        if (self.repo / ".gitleaks.toml").is_file():
+            config_arg = ["--config", ".gitleaks.toml"]
+        result = self.command(
+            ["gitleaks", "detect", "--source", ".", "--no-banner", "--redact", "--exit-code", "1", *config_arg],
+            timeout=60,
+        )
         if result.returncode == 0:
-            self.pass_("gitleaks:dir", "no leaks found")
+            self.pass_("gitleaks:scan", "no leaks found")
+        elif result.returncode == 1:
+            self.fail("gitleaks:scan", result.stdout.strip()[:500])
         else:
-            self.fail("gitleaks:dir", result.stdout.strip())
+            self.warn("gitleaks:scan", f"gitleaks failed: {result.stderr.strip()[:200]}")
 
     def check_github_action(self) -> None:
         if not shutil.which("gh"):
