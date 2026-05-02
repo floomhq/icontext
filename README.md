@@ -28,6 +28,13 @@ and lets your coding agents ask for context when they need it.
 The goal is simple: **your AI assistants can help with the work, without your
 private operating context becoming a liability.**
 
+## Demo
+
+<!-- demo gif will go here once recorded — see demo/README-demo.md -->
+
+**Before icontext:** Claude asks "What are you working on?" every session.  
+**After icontext:** Claude already knows your projects, relationships, and context.
+
 ## What You Get
 
 ```text
@@ -93,6 +100,18 @@ A vault split into three top-level folders:
 
 The classifier enforces content matches folder. Secrets are never allowed anywhere without git-crypt.
 
+## Quickstart
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/floomhq/icontext/main/get.sh | bash
+# restart your terminal, then:
+icontext init
+icontext connect gmail
+icontext connect linkedin --pdf ~/Downloads/Profile.pdf
+icontext sync
+# open Claude Code → ask "what do you know about me?"
+```
+
 ## Install
 
 ```bash
@@ -101,7 +120,8 @@ cd /path/to/your/context-repo
 bash ~/icontext/install.sh
 ```
 
-Run `bash ~/icontext/install.sh --dry-run` first; `--dry-run` previews changes
+See the [Quickstart](#quickstart) above for the fastest path. Run
+`bash ~/icontext/install.sh --dry-run` first; `--dry-run` previews changes
 without writing files. Without `--yes`, the installer uses an interactive
 confirmation gate. Use `--yes` for non-interactive installs after reviewing the
 plan.
@@ -232,6 +252,10 @@ AI context vault, encrypted context repository, Claude Code MCP, Codex MCP,
 Cursor MCP, OpenCode MCP, git-crypt vault, gitleaks pre-commit, context
 engineering, personal knowledge management, local-first AI agents, SQLite FTS
 retrieval.
+
+## Built with icontext
+
+*Share your setup: tag #icontext on Twitter/X*
 
 ## Status
 
