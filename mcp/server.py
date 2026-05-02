@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,6 +62,32 @@ def _tools() -> list[dict]:
         {
             "name": "rebuild_index",
             "description": "Rebuild the local icontext search index.",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "sync_source",
+            "description": "Sync a data source connector (gmail or linkedin) to refresh the user profile.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "enum": ["gmail", "linkedin"]},
+                },
+                "required": ["source"],
+            },
+        },
+        {
+            "name": "get_profile",
+            "description": "Read the synthesized user profile (gmail or linkedin).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "enum": ["gmail", "linkedin"], "default": "gmail"},
+                },
+            },
+        },
+        {
+            "name": "list_sources",
+            "description": "List configured data source connectors and their last sync time.",
             "inputSchema": {"type": "object", "properties": {}},
         },
     ]
@@ -122,6 +149,30 @@ class Server:
         if name == "rebuild_index":
             indexed = rebuild(self.repo)
             return _content(f"indexed {indexed} text file(s)")
+        if name == "sync_source":
+            source = args.get("source", "gmail")
+            result = subprocess.run(
+                ["icontext", "sync", source, "--vault", str(self.repo)],
+                capture_output=True, text=True, timeout=300,
+            )
+            output = result.stdout + result.stderr
+            return _content(output if output else f"sync {source} completed")
+        if name == "get_profile":
+            source = args.get("source", "gmail")
+            path_map = {"gmail": "internal/profile/user.md", "linkedin": "internal/profile/linkedin.md"}
+            path = path_map.get(source, "internal/profile/user.md")
+            text = read_text(self.repo, path, 20000)
+            return _content(text)
+        if name == "list_sources":
+            cfg_path = self.repo / ".icontext" / "connectors.json"
+            if not cfg_path.exists():
+                return _content("No sources configured. Run: icontext connect gmail")
+            cfg = json.loads(cfg_path.read_text())
+            lines = []
+            for src, data in cfg.items():
+                last = data.get("last_sync", "never")
+                lines.append(f"- {src}: last synced {last}")
+            return _content("\n".join(lines) if lines else "No sources configured")
         raise ValueError(f"unknown tool: {name}")
 
 

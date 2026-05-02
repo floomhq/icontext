@@ -16,3 +16,12 @@ __pycache__/
 *.key
 credentials*
 secrets*
+
+# Connector credentials (app passwords, export paths) — never commit.
+.icontext/connectors.json
+
+# Demo recordings (large binaries — scripts are committed, recordings are not).
+demo/*.cast
+demo/*.gif
+!demo/icontext-demo.gif
+!demo/icontext-demo.cast

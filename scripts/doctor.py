@@ -110,23 +110,34 @@ class Doctor:
                 self.fail(f"repo-config:{rel}", "missing")
 
     def check_gitcrypt(self) -> None:
-        attrs = self.command(["git", "check-attr", "filter", "--", "vault/secretary/.env"])
+        # Find the first tracked file in vault/ (if any) to test git-crypt attribute and encryption
+        files_result = self.command(["git", "ls-files", "-z", "vault/"], timeout=15)
+        vault_files = [f for f in files_result.stdout.split("\0") if f] if files_result.returncode == 0 else []
+
+        if not vault_files:
+            # No files in vault/ yet — skip encryption checks
+            self.warn("git-crypt:attribute", "vault/ is empty — no files to check encryption on")
+            return
+
+        sample_file = vault_files[0]
+
+        attrs = self.command(["git", "check-attr", "filter", "--", sample_file])
         if attrs.returncode == 0 and "git-crypt" in attrs.stdout:
-            self.pass_("git-crypt:attribute", "vault/** uses git-crypt filter")
+            self.pass_("git-crypt:attribute", f"vault/** uses git-crypt filter (checked {sample_file})")
         else:
-            self.fail("git-crypt:attribute", attrs.stdout.strip() or "missing git-crypt attribute")
+            self.fail("git-crypt:attribute", attrs.stdout.strip() or f"missing git-crypt attribute on {sample_file}")
 
         blob = subprocess.run(
-            ["git", "cat-file", "-p", "HEAD:vault/secretary/.env"],
+            ["git", "cat-file", "-p", f"HEAD:{sample_file}"],
             cwd=self.repo,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=15,
         )
         if blob.returncode == 0 and blob.stdout.startswith(b"\x00GITCRYPT"):
-            self.pass_("git-crypt:blob", "vault/secretary/.env is encrypted in HEAD")
+            self.pass_("git-crypt:blob", f"{sample_file} is encrypted in HEAD")
         else:
-            self.fail("git-crypt:blob", "expected GITCRYPT header in HEAD blob")
+            self.fail("git-crypt:blob", f"expected GITCRYPT header in HEAD blob for {sample_file}")
 
     def check_vault_blobs(self) -> None:
         files = self.command(["git", "ls-files", "-z", "vault/"], timeout=30)
@@ -207,7 +218,11 @@ class Doctor:
         if result.returncode != 0:
             self.fail("mcp:stdio", result.stdout.strip())
             return
-        responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        try:
+            responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        except json.JSONDecodeError as exc:
+            self.fail("mcp:stdio", f"invalid JSON in server output: {exc}")
+            return
         if len(responses) < 2 or "result" not in responses[-1]:
             self.fail("mcp:stdio", result.stdout.strip())
             return
@@ -657,7 +672,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default="~/context")
     parser.add_argument("--icontext-root", default="~/icontext")
-    parser.add_argument("--query", default="OpenPaper citations academic")
+    parser.add_argument("--query", default="profile context")
     parser.add_argument("--deep", action="store_true", help="run slower gitleaks and GitHub checks")
     parser.add_argument("--fresh-install", action="store_true", help="verify install.sh and uninstall.sh in temp git repos")
     parser.add_argument("--json", action="store_true", help="print machine-readable results")

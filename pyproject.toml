@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "icontext"
+version = "0.2.0"
+description = "Persistent memory for AI coding tools — local, encrypted, built from your real data."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [{name = "Federico de Ponte"}]
+keywords = ["ai", "claude-code", "context", "memory", "mcp", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "google-generativeai>=0.8",
+    "keyring>=25",
+    "pypdf>=4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://icontext.dev"
+Repository = "https://github.com/floomhq/icontext"
+Issues = "https://github.com/floomhq/icontext/issues"
+
+[project.scripts]
+icontext = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["connectors"]
