@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
@@ -71,21 +72,33 @@ class BaseConnector(ABC):
         cfg_path.write_text(json.dumps(all_cfg, indent=2))
 
     def write_profile(self, vault: Path, rel_path: str, content: str) -> None:
+        """Write a file. Use commit_profiles() once at the end of sync() to commit."""
         out = vault / rel_path
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content)
-        # git commit
+
+    def commit_profiles(self, vault: Path) -> None:
+        """Stage and commit all icontext changes in a single atomic commit."""
         try:
-            subprocess.run(["git", "-C", str(vault), "add", rel_path], check=True, capture_output=True)
             subprocess.run(
-                ["git", "-C", str(vault), "commit", "-m", f"icontext: sync {self.name} {datetime.now(UTC).strftime('%Y-%m-%d')}"],
+                ["git", "-C", str(vault), "add", "-A"],
                 check=True, capture_output=True,
             )
-        except subprocess.CalledProcessError:
-            pass  # nothing to commit or git not configured
+            result = subprocess.run(
+                ["git", "-C", str(vault), "commit", "-m",
+                 f"icontext: sync {self.name} {datetime.now(UTC).strftime('%Y-%m-%d')}"],
+                capture_output=True, text=True,
+            )
+            # Exit 1 with "nothing to commit" is acceptable; surface other errors.
+            if result.returncode != 0 and "nothing to commit" not in (result.stdout + result.stderr):
+                _print(_warn(f"git commit failed: {result.stderr.strip() or result.stdout.strip()}"))
+        except subprocess.CalledProcessError as e:
+            _print(_warn(f"git stage failed: {e.stderr.decode() if e.stderr else e}"))
+        except FileNotFoundError:
+            _print(_warn("git not installed — skipping commit"))
 
-    def gemini_synthesize(self, prompt: str) -> str:
-        """Synthesize with Gemini via google-generativeai SDK."""
+    def _gemini_configure(self):
+        """Common setup. Returns the genai module."""
         import warnings
         warnings.filterwarnings("ignore", category=FutureWarning, module=r"google\.generativeai.*")
 
@@ -108,13 +121,61 @@ class BaseConnector(ABC):
                 "  Run: pip install google-generativeai\n"
                 "  Then re-run: icontext sync"
             )
-        print("    synthesizing with Gemini...", end="", flush=True)
         genai.configure(api_key=api_key)
+        return genai
+
+    def gemini_synthesize(self, prompt: str) -> str:
+        """Free-form Gemini call. Used for shareable card and legacy paths."""
+        genai = self._gemini_configure()
+        print("    synthesizing with Gemini...", end="", flush=True)
         model_name = os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         print(" ✓")
-        return response.text.strip()
+        # Some safety blocks raise on .text; guard.
+        try:
+            text = response.text
+        except Exception as e:
+            raise RuntimeError(f"Gemini returned no usable text (likely safety-blocked): {e}")
+        return (text or "").strip()
+
+    def gemini_json(self, prompt: str, schema: dict) -> dict:
+        """JSON-mode Gemini call with a typed schema. Returns parsed dict."""
+        genai = self._gemini_configure()
+        model_name = os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "response_mime_type": "application/json",
+                "response_schema": schema,
+            },
+        )
+        try:
+            text = response.text
+        except Exception as e:
+            raise RuntimeError(f"Gemini returned no usable text (likely safety-blocked): {e}")
+        if not text or not text.strip():
+            raise RuntimeError("Gemini returned an empty response.")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Gemini returned invalid JSON: {e}\nFirst 200 chars: {text[:200]}")
+
+    def gemini_call_with_retry(self, prompt: str, schema: dict | None = None,
+                                max_retries: int = 2) -> str | dict:
+        """Wrap gemini_synthesize / gemini_json with exponential-backoff retry."""
+        last_err: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                if schema is not None:
+                    return self.gemini_json(prompt, schema)
+                return self.gemini_synthesize(prompt)
+            except Exception as e:
+                last_err = e
+                if attempt < max_retries:
+                    time.sleep(2 ** attempt)
+        raise RuntimeError(f"Gemini failed after {max_retries + 1} attempts: {last_err}")
 
     @abstractmethod
     def connect(self, vault: Path) -> None:

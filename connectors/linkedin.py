@@ -1,6 +1,7 @@
 """LinkedIn PDF connector for icontext."""
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -8,35 +9,70 @@ from pathlib import Path
 
 from .base import BaseConnector, C, _c, _ok, _info, _warn, _err, _hr, _print
 
-_SYNTHESIS_PROMPT = """Build a structured professional profile from this LinkedIn PDF export for use by an AI assistant (Claude Code). The AI will use this to understand the person's professional background, skills, and positioning.
 
-## Professional Summary
-Name, current role, headline. 2-3 sentences on career trajectory.
+_LINKEDIN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "headline": {"type": "string"},
+        "summary": {"type": "string"},
+        "current_role": {"type": "string"},
+        "current_company": {"type": "string"},
+        "work_history": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "company": {"type": "string"},
+                    "role": {"type": "string"},
+                    "duration": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["company", "role"],
+            },
+        },
+        "education": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "school": {"type": "string"},
+                    "degree": {"type": "string"},
+                    "field": {"type": "string"},
+                    "years": {"type": "string"},
+                },
+                "required": ["school"],
+            },
+        },
+        "skills": {"type": "array", "items": {"type": "string"}},
+        "positioning": {"type": "string"},
+    },
+    "required": ["name", "headline", "summary", "work_history", "education", "skills", "positioning"],
+}
 
-## Work History
-Table: Company | Role | Duration | Key Notes
-Last 5-7 positions only.
 
-## Education
-Table: School | Degree | Field | Years
-
-## Key Skills
-Top 10-15 skills as a comma-separated list.
-
-## Network / Recommendations
-Any notable recommendations or network signals visible in the PDF.
-
-## Positioning
-How would this person introduce themselves professionally? 1 paragraph.
-
----
-DATA:
-{text}"""
+def _linkedin_prompt(text: str) -> str:
+    return (
+        "Extract a structured professional profile from this LinkedIn PDF text. "
+        "Output MUST match the JSON schema. Be specific. Use real names from the text. "
+        "Do not invent information that is not present.\n"
+        "\n"
+        "RULES:\n"
+        "- name: the person's full name as printed.\n"
+        "- headline: their LinkedIn headline (one line under their name).\n"
+        "- summary: 2-3 sentences on career trajectory, in plain second-person voice ('You ...').\n"
+        "- work_history: last 5-7 positions, most recent first.\n"
+        "- skills: top 10-15 skills as a flat list.\n"
+        "- positioning: 1 paragraph, plain voice, no buzzwords like 'leveraging', "
+        "'pioneering', 'driving innovation'.\n"
+        "\n"
+        "PDF TEXT:\n"
+        f"{text}\n"
+    )
 
 
 def _read_pdf_text(pdf_path: Path) -> str:
     """Extract text from a PDF. Tries pdftotext first, then pypdf."""
-    # Try pdftotext first (brew install poppler / apt install poppler-utils)
     pdftotext_result = subprocess.run(
         ["pdftotext", str(pdf_path), "-"],
         capture_output=True, text=True,
@@ -44,7 +80,6 @@ def _read_pdf_text(pdf_path: Path) -> str:
     if pdftotext_result.returncode == 0 and pdftotext_result.stdout.strip():
         return pdftotext_result.stdout
 
-    # Fallback: try pypdf if available
     try:
         import pypdf
         reader = pypdf.PdfReader(str(pdf_path))
@@ -67,6 +102,66 @@ def _read_pdf_text(pdf_path: Path) -> str:
             "\n"
             "  Then re-run: icontext connect linkedin --pdf {pdf_path}"
         )
+
+
+def _render_linkedin_md(profile: dict, today: str, pdf_name: str) -> str:
+    lines: list[str] = [
+        "---",
+        "source: LinkedIn PDF",
+        f"pdf_file: {pdf_name}",
+        f"generated: {today}",
+        "refresh: icontext sync linkedin",
+        "---",
+        "",
+        "## Professional Summary",
+        "",
+        f"**{profile.get('name', '')}** — {profile.get('headline', '')}",
+        "",
+        profile.get("summary", "").strip() or "_(no summary)_",
+        "",
+        "## Work History",
+        "",
+    ]
+    work = profile.get("work_history") or []
+    if work:
+        lines.append("| Company | Role | Duration | Notes |")
+        lines.append("|---------|------|----------|-------|")
+        for w in work:
+            lines.append(
+                f"| {w.get('company','')} | {w.get('role','')} "
+                f"| {w.get('duration','')} | {w.get('notes','')} |"
+            )
+    else:
+        lines.append("_(none)_")
+    lines.append("")
+
+    lines.append("## Education")
+    lines.append("")
+    edu = profile.get("education") or []
+    if edu:
+        lines.append("| School | Degree | Field | Years |")
+        lines.append("|--------|--------|-------|-------|")
+        for e in edu:
+            lines.append(
+                f"| {e.get('school','')} | {e.get('degree','')} "
+                f"| {e.get('field','')} | {e.get('years','')} |"
+            )
+    else:
+        lines.append("_(none)_")
+    lines.append("")
+
+    lines.append("## Key Skills")
+    lines.append("")
+    skills = profile.get("skills") or []
+    lines.append(", ".join(skills) if skills else "_(none)_")
+    lines.append("")
+
+    lines.append("## Positioning")
+    lines.append("")
+    lines.append(profile.get("positioning", "").strip() or "_(none)_")
+    lines.append("")
+
+    return "\n".join(lines) + "\n"
 
 
 class LinkedInConnector(BaseConnector):
@@ -98,7 +193,6 @@ class LinkedInConnector(BaseConnector):
         cfg = self.load_config(vault)
 
         if not export_path.exists():
-            # Try to help the user find their file
             downloads = Path("~/Downloads").expanduser()
             pdf_candidates = sorted(downloads.glob("*.pdf")) if downloads.is_dir() else []
             _print(_err(f"File not found: {export_path}"))
@@ -122,7 +216,6 @@ class LinkedInConnector(BaseConnector):
 
         _print(_ok(f"PDF found: {export_path.name}"))
 
-        # Test PDF is readable BEFORE saving config — only persist if the PDF actually works
         _print(_info("testing PDF..."), end="", flush=True)
         try:
             text = _read_pdf_text(export_path)
@@ -160,7 +253,6 @@ class LinkedInConnector(BaseConnector):
 
         label_width = 36
 
-        # Step 1: read PDF
         read_label = "reading Profile.pdf..."
         if sys.stdout.isatty():
             print(f"  {_c(C.CYAN, '→')} {read_label:<{label_width}}", end="", flush=True)
@@ -180,16 +272,25 @@ class LinkedInConnector(BaseConnector):
                 f"  Then re-run: icontext connect linkedin --pdf {pdf_path}"
             )
 
-        # Trim for Gemini
-        if len(text) > 8000:
-            text = text[:8000] + "\n[truncated]"
+        # Soft cap; the JSON-schema call handles structure, so we don't need to
+        # truncate aggressively. Stay well under context limits.
+        if len(text) > 16000:
+            text = text[:16000] + "\n[truncated]"
 
-        prompt = _SYNTHESIS_PROMPT.format(text=text)
+        prompt = _linkedin_prompt(text)
+        result = self.gemini_call_with_retry(prompt, schema=_LINKEDIN_SCHEMA)
+        if not isinstance(result, dict):
+            raise RuntimeError("LinkedIn synthesis did not return structured output.")
 
-        # Step 2: synthesize
-        gemini_output = self.gemini_synthesize(prompt)
+        # Validate required fields are non-empty.
+        missing = [k for k in ("name", "summary", "work_history", "education")
+                   if not result.get(k)]
+        if missing:
+            raise RuntimeError(
+                f"LinkedIn synthesis missing required fields: {', '.join(missing)}.\n"
+                "  Re-run: icontext sync linkedin"
+            )
 
-        # Step 3: write profile
         write_label = "writing profile..."
         if sys.stdout.isatty():
             print(f"  {_c(C.CYAN, '→')} {write_label:<{label_width}}", end="", flush=True)
@@ -197,17 +298,8 @@ class LinkedInConnector(BaseConnector):
             _print(_info(write_label))
 
         today = datetime.now(UTC).strftime("%Y-%m-%d")
-        profile = (
-            f"---\n"
-            f"source: LinkedIn PDF\n"
-            f"pdf_file: {pdf_path.name}\n"
-            f"generated: {today}\n"
-            f"refresh: icontext sync linkedin\n"
-            f"---\n\n"
-            f"{gemini_output}\n"
-        )
-
-        self.write_profile(vault, "internal/profile/linkedin.md", profile)
+        md = _render_linkedin_md(result, today, pdf_path.name)
+        self.write_profile(vault, "internal/profile/linkedin.md", md)
 
         if sys.stdout.isatty():
             print(f" {_c(C.GREEN, '✓')}")
@@ -216,6 +308,7 @@ class LinkedInConnector(BaseConnector):
 
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.save_config(vault, cfg)
+        self.commit_profiles(vault)
 
         return f"LinkedIn sync complete from {pdf_path.name}"
 

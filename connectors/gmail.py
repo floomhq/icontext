@@ -1,13 +1,16 @@
 """Gmail IMAP connector for icontext."""
 from __future__ import annotations
 
-import email.header
 import getpass
 import imaplib
+import json
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
+from email.parser import BytesParser
+from email.policy import default as default_policy
+from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
 from .base import BaseConnector, C, _c, _ok, _info, _warn, _err, _hr, _print
@@ -28,101 +31,127 @@ def _get_credential(service: str, account: str) -> str | None:
     except Exception:
         return None
 
-_SYNTHESIS_PROMPT = """You are building a structured user profile for Claude Code (an AI coding assistant) about the person whose email you are analyzing. This profile is loaded at every session so the AI knows who this person is, who matters to them, what they're working on, and how they operate — without needing to be told every session.
 
-Analyze this email metadata (subjects, senders, recipients, frequencies) and produce a structured Markdown profile. Use the section markers exactly as shown so the output can be parsed.
+# ---------------------------------------------------------------------------
+# Header parsing — RFC 2822 compliant via stdlib
+# ---------------------------------------------------------------------------
 
-## Identity Summary
-2-3 sentences: who is this person, what do they do, what are they currently focused on (infer from email patterns).
+def _parse_message_headers(raw: bytes | str) -> dict:
+    """Parse RFC 2822 headers. Returns dict with from, to, cc, subject, date, from_addrs."""
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", errors="replace")
+    # BytesParser handles folded continuation lines and MIME-encoded words.
+    msg = BytesParser(policy=default_policy).parsebytes(raw)
 
-<!-- SECTION: relationships -->
-## Key Relationships
-Table: Name | Company/Domain | Role | Frequency | Warmth | Notes
-- Frequency: daily/weekly/monthly
-- Warmth: hot/warm/cold (infer from frequency + subject patterns)
-- Notes: 1-line context (investor, partner, user, collaborator, friend)
-List top 15 relationships. Exclude bots, notifications, automated emails.
-<!-- END SECTION -->
+    def _addrs(field: str) -> list[str]:
+        raw_val = msg.get(field, "")
+        if not raw_val:
+            return []
+        return [addr.lower().strip() for _, addr in getaddresses([raw_val]) if addr]
 
-## Recurring Topics
-8-10 bullet points. Each: topic name — how it shows up in email patterns.
+    def _pairs(field: str) -> list[tuple[str, str]]:
+        raw_val = msg.get(field, "")
+        if not raw_val:
+            return []
+        return [(name.strip(), addr.lower().strip())
+                for name, addr in getaddresses([raw_val]) if addr]
 
-<!-- SECTION: projects -->
-## Active Projects (inferred)
-4-8 bullet points. Each: project name — what seems to be happening, who's involved.
-<!-- END SECTION -->
-
-## Communication Patterns
-- Who they initiate contact with most
-- Who initiates with them most
-- Which accounts handle which domains
-
-## Decision-Making Signals
-What do they decide themselves vs. loop others in on? Infer from CC patterns and subject lines.
-
-## Pending / Watch
-3-5 items that seem in-flight or waiting. Format: [Topic]: [status inference]
-
----
-Be specific. Use real names. No filler. Note uncertainty with [?].
-
-EMAIL DATA:
-{summary}"""
-
-
-def _decode_header(raw: str | bytes | None) -> str:
-    """Decode a MIME-encoded header value to plain text."""
-    if raw is None:
-        return ""
-    if isinstance(raw, bytes):
-        raw = raw.decode("utf-8", errors="replace")
-    parts = email.header.decode_header(raw)
-    decoded = []
-    for chunk, charset in parts:
-        if isinstance(chunk, bytes):
-            decoded.append(chunk.decode(charset or "utf-8", errors="replace"))
-        else:
-            decoded.append(chunk)
-    return " ".join(decoded).strip()
-
-
-def _extract_address(field: str) -> str:
-    """Extract bare email address from 'Name <addr>' or 'addr'."""
-    m = re.search(r"<([^>]+)>", field)
-    if m:
-        return m.group(1).strip().lower()
-    return field.strip().lower()
+    return {
+        "subject": str(msg.get("Subject", "")).strip(),
+        "from_raw": str(msg.get("From", "")).strip(),
+        "from_addrs": _addrs("From"),
+        "from_pairs": _pairs("From"),
+        "to": _addrs("To"),
+        "to_pairs": _pairs("To"),
+        "cc": _addrs("Cc"),
+        "cc_pairs": _pairs("Cc"),
+        "date": str(msg.get("Date", "")).strip(),
+    }
 
 
 def _extract_domain(addr: str) -> str:
     parts = addr.split("@", 1)
-    return parts[1] if len(parts) == 2 else addr
+    return parts[1] if len(parts) == 2 else ""
 
 
-_BOT_DOMAINS = {
-    "noreply", "no-reply", "donotreply", "mailer-daemon", "bounce",
-    "notifications", "news", "newsletter", "marketing", "support",
-    "info", "hello", "contact", "team", "mail", "emails",
-}
+# ---------------------------------------------------------------------------
+# Bot / SaaS welcome filters
+# ---------------------------------------------------------------------------
 
 _BOT_PATTERNS = re.compile(
-    r"(noreply|no-reply|donotreply|bounce|notification|newsletter|unsubscribe|"
-    r"mailer-daemon|automated|alert|update|digest|confirm|verify)",
+    r"(noreply|no-reply|donotreply|bounce|notification|notifications|newsletter|"
+    r"unsubscribe|mailer-daemon|automated|alerts?|update|digest|confirm|verify|"
+    r"do-not-reply|hello@|info@|mailer@|news@|marketing@)",
     re.IGNORECASE,
 )
 
+_GENERIC_LOCAL_PARTS = {
+    "noreply", "no-reply", "donotreply", "do-not-reply", "notifications",
+    "notification", "news", "newsletter", "marketing", "support", "info",
+    "hello", "contact", "team", "mail", "emails", "welcome", "billing",
+    "alert", "alerts", "bounce", "mailer", "mailer-daemon", "help",
+    "feedback", "system", "automated", "auto-reply", "postmaster",
+    "abuse", "admin", "robot", "bot", "tracking",
+}
+
 
 def _is_bot(addr: str) -> bool:
-    local = addr.split("@")[0].lower()
-    if _BOT_PATTERNS.search(local):
+    """Strict bot detection — only catches obvious automated senders."""
+    if not addr or "@" not in addr:
         return True
-    if _BOT_PATTERNS.search(addr):
+    local = addr.split("@", 1)[0].lower()
+    if local in _GENERIC_LOCAL_PARTS:
+        return True
+    if _BOT_PATTERNS.search(local):
         return True
     return False
 
 
-def _fetch_folder(conn: imaplib.IMAP4_SSL, folder: str, since_date: str, max_msgs: int) -> list[dict]:
-    """Fetch metadata from a folder. Returns list of {subject, from, to, date}."""
+_SAAS_WELCOME_PHRASES = (
+    "welcome to", "verify your email", "verify your account",
+    "confirm your", "your account at", "thanks for signing up",
+    "set up your account", "activate your account", "complete your signup",
+    "you're invited", "your invitation", "click to confirm",
+    "password reset", "reset your password", "your receipt", "your invoice",
+)
+
+
+def _is_relationship_signal(msg_count: int, from_addr: str, subjects: list[str]) -> bool:
+    """Drop senders that look like SaaS notifications or one-shot signups."""
+    addr_lc = (from_addr or "").lower()
+    local = addr_lc.split("@", 1)[0] if "@" in addr_lc else addr_lc
+
+    # If the local-part is generic AND we have <3 messages, it's almost certainly noise.
+    is_generic_local = (
+        local in _GENERIC_LOCAL_PARTS
+        or any(local.startswith(p) for p in ("noreply", "no-reply", "team", "hello", "support", "info", "welcome", "notifications"))
+    )
+    if is_generic_local and msg_count < 3:
+        return False
+
+    # Single-message signals from any sender are probably notifications.
+    if msg_count < 2:
+        return False
+
+    # If the majority of subjects look like SaaS welcome / verification, drop.
+    if subjects:
+        welcome_hits = sum(
+            1 for s in subjects
+            if any(p in s.lower() for p in _SAAS_WELCOME_PHRASES)
+        )
+        if welcome_hits / len(subjects) > 0.5:
+            return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# IMAP fetch
+# ---------------------------------------------------------------------------
+
+def _fetch_folder(conn: imaplib.IMAP4_SSL, folder: str, since_date: str,
+                   max_msgs: int, direction: str) -> list[dict]:
+    """Fetch metadata from a folder. Each record gets a 'direction' tag."""
     try:
         status, _ = conn.select(folder, readonly=True)
         if status != "OK":
@@ -138,32 +167,22 @@ def _fetch_folder(conn: imaplib.IMAP4_SSL, folder: str, since_date: str, max_msg
         return []
 
     msg_ids = data[0].split()
-    # Take the most recent max_msgs
     if len(msg_ids) > max_msgs:
         msg_ids = msg_ids[-max_msgs:]
 
     results = []
     for msg_id in msg_ids:
         try:
-            status, msg_data = conn.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
+            status, msg_data = conn.fetch(
+                msg_id,
+                "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO CC DATE)])",
+            )
             if status != "OK" or not msg_data or not msg_data[0]:
                 continue
             raw = msg_data[0][1]
-            if isinstance(raw, bytes):
-                raw_str = raw.decode("utf-8", errors="replace")
-            else:
-                raw_str = raw
-            record: dict[str, str] = {}
-            for line in raw_str.splitlines():
-                if line.lower().startswith("subject:"):
-                    record["subject"] = _decode_header(line[8:].strip())
-                elif line.lower().startswith("from:"):
-                    record["from"] = _decode_header(line[5:].strip())
-                elif line.lower().startswith("to:"):
-                    record["to"] = _decode_header(line[3:].strip())
-                elif line.lower().startswith("date:"):
-                    record["date"] = line[5:].strip()
-            if record:
+            record = _parse_message_headers(raw)
+            record["direction"] = direction
+            if record.get("subject") or record.get("from_addrs") or record.get("to"):
                 results.append(record)
         except Exception:
             continue
@@ -172,7 +191,6 @@ def _fetch_folder(conn: imaplib.IMAP4_SSL, folder: str, since_date: str, max_msg
 
 
 def _find_sent_folder(conn: imaplib.IMAP4_SSL) -> str:
-    """Try common Sent folder names."""
     candidates = ["[Gmail]/Sent Mail", "Sent", "Sent Items", "Sent Messages", "INBOX.Sent"]
     for name in candidates:
         try:
@@ -184,62 +202,586 @@ def _find_sent_folder(conn: imaplib.IMAP4_SSL) -> str:
     return "[Gmail]/Sent Mail"
 
 
-def _build_summary(all_messages: list[dict], own_addresses: set[str]) -> str:
-    """Build a compact text summary of email patterns for Gemini."""
-    sender_counter: Counter = Counter()
-    recipient_counter: Counter = Counter()
-    subjects: list[str] = []
+# ---------------------------------------------------------------------------
+# Compact-fact extraction
+# ---------------------------------------------------------------------------
+
+_SUBJECT_NORMALIZE_PREFIX = re.compile(r"^(re|fwd?|fw|aw|wg)\s*:\s*", re.IGNORECASE)
+
+
+def _normalize_subject(subj: str) -> str:
+    cleaned = subj.strip()
+    while True:
+        new = _SUBJECT_NORMALIZE_PREFIX.sub("", cleaned).strip()
+        if new == cleaned:
+            break
+        cleaned = new
+    return cleaned
+
+
+def _name_for(addr: str, name_hints: dict[str, str]) -> str:
+    """Pick a best display name for an address from observed hints."""
+    return name_hints.get(addr, "")
+
+
+def _build_compact_facts(
+    all_messages: list[dict], own_addresses: set[str], scan_days: int,
+) -> dict:
+    """Extract structured facts. No LLM call. Direction-aware."""
+    inbound_senders: Counter = Counter()
+    outbound_recipients: Counter = Counter()
+    name_hints: dict[str, str] = {}
+    domain_counts: Counter = Counter()
+    sender_subjects: defaultdict[str, list[str]] = defaultdict(list)
+    recipient_subjects: defaultdict[str, list[str]] = defaultdict(list)
+    sender_last_seen: dict[str, datetime] = {}
+    recipient_last_seen: dict[str, datetime] = {}
+    thread_subjects: Counter = Counter()
+    all_subjects: list[str] = []
 
     for msg in all_messages:
-        frm = _extract_address(msg.get("from", ""))
-        if frm and not _is_bot(frm) and frm not in own_addresses:
-            sender_counter[frm] += 1
-
-        to_raw = msg.get("to", "")
-        for part in to_raw.split(","):
-            addr = _extract_address(part.strip())
-            if addr and not _is_bot(addr) and addr not in own_addresses:
-                recipient_counter[addr] += 1
-
+        direction = msg.get("direction", "inbox")
         subj = msg.get("subject", "").strip()
-        if subj and len(subj) > 3:
-            subjects.append(subj[:120])
+        norm = _normalize_subject(subj)
+        if norm:
+            thread_subjects[norm] += 1
+            all_subjects.append(subj)
 
-    top_senders = sender_counter.most_common(20)
-    top_recipients = recipient_counter.most_common(20)
-    subject_sample = subjects[:150]
+        # Capture name hints from any From/To/Cc pair.
+        for name, addr in (msg.get("from_pairs", []) + msg.get("to_pairs", [])
+                            + msg.get("cc_pairs", [])):
+            if name and addr and addr not in name_hints:
+                name_hints[addr] = name
 
-    lines = [
-        f"Total messages analyzed: {len(all_messages)}",
-        f"Own email addresses: {', '.join(sorted(own_addresses))}",
+        # Parse date once for last-seen tracking.
+        msg_dt: datetime | None = None
+        date_str = msg.get("date", "")
+        if date_str:
+            # Try RFC 2822 first (IMAP path), then ISO 8601 (Composio path).
+            try:
+                msg_dt = parsedate_to_datetime(date_str)
+            except Exception:
+                msg_dt = None
+            if msg_dt is None:
+                try:
+                    msg_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                except Exception:
+                    msg_dt = None
+
+        if direction == "inbox":
+            for frm in msg.get("from_addrs", []):
+                if frm in own_addresses or _is_bot(frm):
+                    continue
+                inbound_senders[frm] += 1
+                if subj:
+                    sender_subjects[frm].append(subj[:140])
+                if msg_dt:
+                    prev = sender_last_seen.get(frm)
+                    if not prev or msg_dt > prev:
+                        sender_last_seen[frm] = msg_dt
+                dom = _extract_domain(frm)
+                if dom:
+                    domain_counts[dom] += 1
+        elif direction == "sent":
+            for to_addr in msg.get("to", []) + msg.get("cc", []):
+                if to_addr in own_addresses or _is_bot(to_addr):
+                    continue
+                outbound_recipients[to_addr] += 1
+                if subj:
+                    recipient_subjects[to_addr].append(subj[:140])
+                if msg_dt:
+                    prev = recipient_last_seen.get(to_addr)
+                    if not prev or msg_dt > prev:
+                        recipient_last_seen[to_addr] = msg_dt
+                dom = _extract_domain(to_addr)
+                if dom:
+                    domain_counts[dom] += 1
+
+    # Combined per-counterparty stats (inbound + outbound).
+    combined: dict[str, dict] = {}
+    for addr, cnt in inbound_senders.items():
+        combined.setdefault(addr, {"inbound": 0, "outbound": 0, "subjects": []})
+        combined[addr]["inbound"] = cnt
+        combined[addr]["subjects"].extend(sender_subjects.get(addr, []))
+        if addr in sender_last_seen:
+            combined[addr].setdefault("last_seen", sender_last_seen[addr])
+    for addr, cnt in outbound_recipients.items():
+        combined.setdefault(addr, {"inbound": 0, "outbound": 0, "subjects": []})
+        combined[addr]["outbound"] = cnt
+        combined[addr]["subjects"].extend(recipient_subjects.get(addr, []))
+        if addr in recipient_last_seen:
+            ls = recipient_last_seen[addr]
+            prev = combined[addr].get("last_seen")
+            if not prev or ls > prev:
+                combined[addr]["last_seen"] = ls
+
+    # Filter out SaaS / one-shot noise.
+    counterparties = []
+    for addr, stats in combined.items():
+        total = stats["inbound"] + stats["outbound"]
+        if not _is_relationship_signal(total, addr, stats["subjects"]):
+            continue
+        last_seen = stats.get("last_seen")
+        last_seen_str = last_seen.strftime("%Y-%m-%d") if last_seen else ""
+        # Direction label.
+        if stats["inbound"] and stats["outbound"]:
+            d = "two_way"
+        elif stats["outbound"] > stats["inbound"]:
+            d = "you_send"
+        else:
+            d = "you_receive"
+        counterparties.append({
+            "email": addr,
+            "name": name_hints.get(addr, ""),
+            "domain": _extract_domain(addr),
+            "inbound": stats["inbound"],
+            "outbound": stats["outbound"],
+            "total": total,
+            "direction": d,
+            "last_seen": last_seen_str,
+            # Up to 8 sample subjects per person.
+            "subjects": stats["subjects"][:8],
+        })
+
+    # Sort by combined evidence then outbound (sent matters more).
+    counterparties.sort(key=lambda c: (-c["total"], -c["outbound"]))
+
+    # Top normalized subjects (for project / topic inference).
+    top_threads = [
+        {"subject": s, "count": c}
+        for s, c in thread_subjects.most_common(40)
+        if c >= 1 and len(s) > 4
+    ][:30]
+
+    return {
+        "scan_days": scan_days,
+        "own_addresses": sorted(own_addresses),
+        "total_messages": len(all_messages),
+        "counterparties": counterparties[:30],
+        "top_domains": [{"domain": d, "count": c}
+                         for d, c in domain_counts.most_common(15)],
+        "top_threads": top_threads,
+        "recent_subjects": all_subjects[:120],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stage A — Entity extraction schema + prompt
+# ---------------------------------------------------------------------------
+
+_EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "people": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "email": {"type": "string"},
+                    "company": {"type": "string"},
+                    "role": {"type": "string"},
+                    "evidence_messages": {"type": "integer"},
+                    "direction": {
+                        "type": "string",
+                        "enum": ["mostly_inbound", "mostly_outbound", "balanced"],
+                    },
+                    "topics": {"type": "array", "items": {"type": "string"}},
+                    "context": {"type": "string"},
+                },
+                "required": ["name", "email", "evidence_messages"],
+            },
+        },
+        "projects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "evidence_subjects": {"type": "array", "items": {"type": "string"}},
+                    "participants": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["name", "evidence_subjects"],
+            },
+        },
+        "topics": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["people", "projects", "topics"],
+}
+
+
+def _extract_prompt(facts: dict, seed: str | None) -> str:
+    seed_block = ""
+    if seed:
+        seed_block = (
+            f"\nUSER_SEED (one-line self-description from the user — treat as ground truth "
+            f"for project names and identity):\n{seed}\n"
+        )
+    return (
+        "You extract structured entities from email metadata. "
+        "Output MUST match the JSON schema. Do NOT invent people, projects, or topics — "
+        "only those grounded in the data below. Skip any sender whose evidence is a single "
+        "welcome / signup / verification / receipt subject.\n"
+        "\n"
+        "RULES:\n"
+        "- Only include a person if they have >= 2 evidence_messages.\n"
+        "- For projects: include any product/codebase/initiative name that appears in >= 2 "
+        "distinct subjects. Look hard at top_threads and recent_subjects. Project names are "
+        "usually capitalised proper nouns (e.g. Floom, Rocketlist, OpenPaper, Relay). "
+        "If USER_SEED names a project, include it as long as it appears at least once in "
+        "the data with corroborating evidence subjects.\n"
+        "- For each project, give 2-6 evidence_subjects copied verbatim from the data.\n"
+        "- direction: 'mostly_outbound' if the user sent more than received, "
+        "'mostly_inbound' if received more than sent, 'balanced' otherwise.\n"
+        "- name: use the display name observed in the data when available; "
+        "fall back to local-part of email if no name was observed.\n"
+        "- topics: short noun phrases that recur across multiple subjects.\n"
+        "- Be specific. Use real names from the data. No filler.\n"
+        f"{seed_block}"
+        "\n"
+        "DATA:\n"
+        f"{json.dumps(facts, indent=2, default=str)}\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage B — Local validation
+# ---------------------------------------------------------------------------
+
+def _validate_entities(extracted: dict, facts: dict) -> dict:
+    """Drop low-confidence entities, dedupe, attach hard metrics."""
+    own = set(facts.get("own_addresses", []))
+    cps = {cp["email"]: cp for cp in facts.get("counterparties", [])}
+
+    people: list[dict] = []
+    seen_emails: set[str] = set()
+    for p in extracted.get("people", []) or []:
+        email = (p.get("email") or "").lower().strip()
+        if not email or email in own or email in seen_emails:
+            continue
+        if _is_bot(email):
+            continue
+        # Cross-check evidence against local facts; if the email isn't in our
+        # counterparty set OR has no real evidence, drop it.
+        cp = cps.get(email)
+        local_evidence = cp["total"] if cp else 0
+        claimed = int(p.get("evidence_messages") or 0)
+        evidence = local_evidence or claimed
+        if evidence < 2:
+            continue
+        seen_emails.add(email)
+        person = {
+            "name": (p.get("name") or "").strip() or email.split("@", 1)[0],
+            "email": email,
+            "company": (p.get("company") or "").strip(),
+            "role": (p.get("role") or "").strip(),
+            "context": (p.get("context") or "").strip(),
+            "topics": [t for t in (p.get("topics") or []) if t][:5],
+            "evidence_messages": evidence,
+            "direction": p.get("direction") or (cp.get("direction") if cp else "balanced"),
+        }
+        if cp:
+            person["last_seen"] = cp.get("last_seen", "")
+            person["inbound"] = cp.get("inbound", 0)
+            person["outbound"] = cp.get("outbound", 0)
+        people.append(person)
+
+    people.sort(key=lambda x: -x["evidence_messages"])
+
+    # Project validation: at least 2 distinct evidence subjects.
+    projects: list[dict] = []
+    seen_proj_names: set[str] = set()
+    for proj in extracted.get("projects", []) or []:
+        name = (proj.get("name") or "").strip()
+        if not name or name.lower() in seen_proj_names:
+            continue
+        evidence_subjects = [s for s in (proj.get("evidence_subjects") or []) if s]
+        if len(set(evidence_subjects)) < 2:
+            continue
+        seen_proj_names.add(name.lower())
+        projects.append({
+            "name": name,
+            "description": (proj.get("description") or "").strip(),
+            "evidence_subjects": evidence_subjects[:6],
+            "participants": [p for p in (proj.get("participants") or []) if p][:6],
+        })
+
+    topics = []
+    for t in (extracted.get("topics") or []):
+        t = (t or "").strip()
+        if t and t not in topics:
+            topics.append(t)
+
+    return {
+        "people": people[:20],
+        "projects": projects[:10],
+        "topics": topics[:12],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stage C — Profile synthesis schema + prompt
+# ---------------------------------------------------------------------------
+
+_PROFILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "identity_summary": {"type": "string"},
+        "key_relationships": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "email": {"type": "string"},
+                    "company": {"type": "string"},
+                    "role": {"type": "string"},
+                    "frequency": {"type": "string"},
+                    "warmth": {"type": "string", "enum": ["hot", "warm", "cold"]},
+                    "context": {"type": "string"},
+                },
+                "required": ["name"],
+            },
+        },
+        "recurring_topics": {"type": "array", "items": {"type": "string"}},
+        "active_projects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "status": {"type": "string"},
+                    "participants": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["name"],
+            },
+        },
+        "communication_patterns": {"type": "string"},
+        "pending_items": {"type": "array", "items": {"type": "string"}},
+        "shareable_card": {"type": "string"},
+    },
+    "required": [
+        "identity_summary", "key_relationships", "recurring_topics",
+        "active_projects", "communication_patterns", "pending_items",
+        "shareable_card",
+    ],
+}
+
+
+def _profile_prompt(validated: dict, facts: dict, seed: str | None) -> str:
+    seed_block = ""
+    if seed:
+        seed_block = f"\nUSER_SEED (use this to ground identity_summary and project names):\n{seed}\n"
+    # Trim facts payload — only top_threads + top_domains needed as fallback evidence.
+    fallback = {
+        "top_threads": facts.get("top_threads", [])[:25],
+        "top_domains": facts.get("top_domains", [])[:10],
+    }
+    return (
+        "You are writing a structured user profile for a coding assistant. "
+        "The profile must read in the user's own voice — direct, concrete, no corporate filler. "
+        "Output MUST match the JSON schema.\n"
+        "\n"
+        "VOICE RULES:\n"
+        "- Plain second-person ('You email Cedrik weekly about Floom').\n"
+        "- BANNED words: 'leveraging', 'leverage', 'innovating', 'pioneering', 'driving', "
+        "'spearheading', 'forging strategic partnerships', 'ecosystem', 'AI-native', "
+        "'cutting-edge', 'robust', 'seamless', 'empower'.\n"
+        "- No buzzword stacks. Short sentences. Specific names and counts.\n"
+        "- shareable_card: under 120 words, no email addresses, no relationship names — "
+        "just role, current focus, background. Safe to share publicly.\n"
+        "\n"
+        "GROUNDING RULES:\n"
+        "- key_relationships: one row per person in validated.people. Use evidence and "
+        "direction fields. frequency: >=8 messages = 'weekly', 4-7 = 'monthly', "
+        "2-3 = 'occasional'. warmth: 'hot' if outbound >= 3 OR direction='you_send' with "
+        "evidence >= 3; 'warm' if any outbound or balanced; 'cold' if inbound-only.\n"
+        "- active_projects: include every entry in validated.projects. If USER_SEED names "
+        "projects (e.g. Floom, Rocketlist, OpenPaper) AND the FALLBACK_THREADS contain "
+        "subjects that mention those names, also list them as active projects. "
+        "Use real names. Status should be a short phrase like 'shipping', 'fundraising', "
+        "'in early users', based on subject evidence.\n"
+        "- recurring_topics: real noun phrases from the data (e.g. 'Foreign founder application', "
+        "'CLI releases', 'failed Vercel payments') — NOT single words like 'AI' or 'payment'.\n"
+        "- pending_items: short, specific, name the thing. Skip generic items.\n"
+        "- communication_patterns: 2-3 sentences max. Concrete numbers if available.\n"
+        f"{seed_block}"
+        "\n"
+        "VALIDATED DATA (people + projects after dedup and filter):\n"
+        f"{json.dumps(validated, indent=2, default=str)}\n"
+        "\n"
+        "FALLBACK_THREADS (top normalized subjects from the inbox; use these to corroborate "
+        "USER_SEED projects and to build recurring_topics / pending_items):\n"
+        f"{json.dumps(fallback, indent=2, default=str)}\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Markdown rendering — deterministic, no LLM parsing
+# ---------------------------------------------------------------------------
+
+def _render_profile_md(profile: dict, sources: list[str], scan_days: int,
+                        accounts: list[str], today: str) -> str:
+    lines: list[str] = [
+        "---",
+        f"source: {', '.join(sources)} (last {scan_days} days)" if scan_days else f"source: {', '.join(sources)}",
+        f"accounts: {', '.join(accounts)}" if accounts else "",
+        f"generated: {today}",
+        "refresh: icontext sync gmail",
+        "---",
         "",
-        "Top 20 senders (address: count):",
+        "## Identity Summary",
+        "",
+        profile.get("identity_summary", "").strip() or "_(no summary)_",
+        "",
+        "## Key Relationships",
+        "",
     ]
-    for addr, count in top_senders:
-        lines.append(f"  {addr}: {count}")
-
+    rels = profile.get("key_relationships") or []
+    if rels:
+        lines.append("| Name | Company | Role | Frequency | Warmth | Context |")
+        lines.append("|------|---------|------|-----------|--------|---------|")
+        for r in rels:
+            lines.append(
+                f"| {r.get('name','')} | {r.get('company','')} | {r.get('role','')} "
+                f"| {r.get('frequency','')} | {r.get('warmth','')} | {r.get('context','')} |"
+            )
+    else:
+        lines.append("_(none)_")
     lines.append("")
-    lines.append("Top 20 recipients you sent to (address: count):")
-    for addr, count in top_recipients:
-        lines.append(f"  {addr}: {count}")
 
+    lines.append("## Recurring Topics")
     lines.append("")
-    lines.append(f"Sample of {len(subject_sample)} recent subjects:")
-    for subj in subject_sample:
-        lines.append(f"  - {subj}")
+    topics = profile.get("recurring_topics") or []
+    for t in topics:
+        lines.append(f"- {t}")
+    if not topics:
+        lines.append("_(none)_")
+    lines.append("")
 
-    return "\n".join(lines)
+    lines.append("## Active Projects")
+    lines.append("")
+    projects = profile.get("active_projects") or []
+    for p in projects:
+        name = p.get("name", "")
+        status = p.get("status", "")
+        participants = ", ".join(p.get("participants") or [])
+        bullet = f"- **{name}**"
+        if status:
+            bullet += f" — {status}"
+        if participants:
+            bullet += f" ({participants})"
+        lines.append(bullet)
+    if not projects:
+        lines.append("_(none)_")
+    lines.append("")
+
+    lines.append("## Communication Patterns")
+    lines.append("")
+    lines.append(profile.get("communication_patterns", "").strip() or "_(none)_")
+    lines.append("")
+
+    lines.append("## Pending / Watch")
+    lines.append("")
+    pendings = profile.get("pending_items") or []
+    for item in pendings:
+        lines.append(f"- {item}")
+    if not pendings:
+        lines.append("_(none)_")
+    lines.append("")
+
+    # Drop empty meta lines (e.g., empty accounts).
+    return "\n".join(line for line in lines if line is not None) + "\n"
 
 
-def _extract_section(text: str, section_name: str) -> str:
-    """Extract content between <!-- SECTION: name --> and <!-- END SECTION --> markers."""
-    import re as _re
-    pattern = rf"<!--\s*SECTION:\s*{_re.escape(section_name)}\s*-->(.*?)<!--\s*END SECTION\s*-->"
-    m = _re.search(pattern, text, _re.DOTALL | _re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    return ""
+def _render_relationships_md(profile: dict, today: str) -> str:
+    rels = profile.get("key_relationships") or []
+    body = ["---", "source: icontext/gmail", f"generated: {today}", "---", "",
+            "## Key Relationships", ""]
+    if rels:
+        body.append("| Name | Company | Role | Frequency | Warmth | Context |")
+        body.append("|------|---------|------|-----------|--------|---------|")
+        for r in rels:
+            body.append(
+                f"| {r.get('name','')} | {r.get('company','')} | {r.get('role','')} "
+                f"| {r.get('frequency','')} | {r.get('warmth','')} | {r.get('context','')} |"
+            )
+    else:
+        body.append("_(none yet)_")
+    body.append("")
+    return "\n".join(body)
 
+
+def _render_projects_md(profile: dict, today: str) -> str:
+    projects = profile.get("active_projects") or []
+    body = ["---", "source: icontext/gmail", f"generated: {today}", "---", "",
+            "## Active Projects", ""]
+    if projects:
+        for p in projects:
+            name = p.get("name", "")
+            status = p.get("status", "")
+            participants = ", ".join(p.get("participants") or [])
+            bullet = f"- **{name}**"
+            if status:
+                bullet += f" — {status}"
+            if participants:
+                bullet += f" ({participants})"
+            body.append(bullet)
+    else:
+        body.append("_(none yet)_")
+    body.append("")
+    return "\n".join(body)
+
+
+def _render_card_md(profile: dict, today: str) -> str:
+    card = (profile.get("shareable_card") or "").strip()
+    return (
+        "---\n"
+        "shareable: true\n"
+        f"generated: {today}\n"
+        "source: icontext\n"
+        "---\n\n"
+        f"{card or '_(no card available)_'}\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public pipeline entry point — usable by tests + dogfood drivers
+# ---------------------------------------------------------------------------
+
+def run_pipeline(
+    connector: BaseConnector,
+    all_messages: list[dict],
+    own_addresses: set[str],
+    scan_days: int,
+    seed: str | None = None,
+) -> tuple[dict, dict, dict]:
+    """Run Stages A → B → C. Returns (facts, validated, profile).
+
+    `connector` provides gemini_call_with_retry; tests can pass a mock.
+    `all_messages` items must already include 'direction' ('inbox' or 'sent').
+    """
+    facts = _build_compact_facts(all_messages, own_addresses, scan_days)
+
+    extract_prompt = _extract_prompt(facts, seed)
+    extracted = connector.gemini_call_with_retry(extract_prompt, schema=_EXTRACT_SCHEMA)
+    if not isinstance(extracted, dict):
+        raise RuntimeError("Stage A did not return a dict from Gemini.")
+
+    validated = _validate_entities(extracted, facts)
+
+    profile_prompt = _profile_prompt(validated, facts, seed)
+    profile = connector.gemini_call_with_retry(profile_prompt, schema=_PROFILE_SCHEMA)
+    if not isinstance(profile, dict):
+        raise RuntimeError("Stage C did not return a dict from Gemini.")
+
+    return facts, validated, profile
+
+
+# ---------------------------------------------------------------------------
+# Connector
+# ---------------------------------------------------------------------------
 
 class GmailConnector(BaseConnector):
     name = "gmail"
@@ -265,6 +807,8 @@ class GmailConnector(BaseConnector):
         _print(f"  Privacy: we read only email metadata — sender, subject, date.")
         _print(f"  Message content and attachments are never accessed or stored.")
         _print("")
+        _print(_info("Tip: connect every primary inbox you use (work + side-project + personal)."))
+        _print("")
         input(f"  Press Enter when ready...")
         _print("")
 
@@ -282,14 +826,12 @@ class GmailConnector(BaseConnector):
                 continue
             label = input("  Label (e.g. PRIMARY, WORK — or just press Enter): ").strip() or "PRIMARY"
 
-            # Test the connection (30-second timeout covers slow network + bad credentials)
             try:
                 conn = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
                 conn.login(addr, pwd)
                 conn.logout()
                 _print(_ok(f"gmail connected ({addr})"))
             except imaplib.IMAP4.error as exc:
-                # IMAP-level auth error — likely wrong app password
                 _print(_err(f"Login failed: {exc}"))
                 _print(_warn("Make sure you copied the 16-character app password exactly (no spaces)."))
                 retry = input("  Try again? [y/N]: ").strip().lower()
@@ -297,7 +839,6 @@ class GmailConnector(BaseConnector):
                     break
                 continue
             except OSError as exc:
-                # Network / DNS / timeout
                 _print(_err(f"Network error: {exc}"))
                 _print(_warn("Check your internet connection and try again."))
                 retry = input("  Try again? [y/N]: ").strip().lower()
@@ -311,24 +852,37 @@ class GmailConnector(BaseConnector):
                     break
                 continue
 
-            # Store password in keychain, not in JSON
             _store_credential("icontext-gmail", addr, pwd)
-            # Save account without password in config
             accounts.append({"address": addr, "label": label})
 
-            another = input(f"  {_c(C.CYAN, '→')} add another account? [y/N]: ").strip().lower()
-            if another != "y":
+            _print("")
+            another = input(
+                f"  {_c(C.CYAN, '→')} connect another inbox (work / side-project / personal)? [Y/n]: "
+            ).strip().lower()
+            if another == "n":
                 break
 
         if not accounts:
             _print(_warn("No accounts configured."))
             return
 
+        # Optional one-line seed prompt (helps Gemini ground identity).
+        if not cfg.get("seed"):
+            _print("")
+            _print(_info("Optional: tell us about yourself in one sentence."))
+            _print(_info("  e.g. 'I'm a founder building Floom and Rocketlist.'"))
+            _print(_info("  This grounds the AI's synthesis. Skip with Enter."))
+            seed = input("  > ").strip()
+            if seed:
+                cfg["seed"] = seed
+
         cfg["accounts"] = accounts
         cfg.setdefault("scan_days", 90)
         self.save_config(vault, cfg)
         _print(_ok(f"saved {len(accounts)} account(s) (passwords stored in OS keychain)"))
         _print(_info(f"account config (no passwords) saved to vault"))
+        if cfg.get("scan_days", 90) == 90:
+            _print(_info("scan window: 90 days. Bump to 180 in connectors.json for slower-moving relationships."))
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
@@ -342,6 +896,7 @@ class GmailConnector(BaseConnector):
         scan_days = int(cfg.get("scan_days", 90))
         since = datetime.now(UTC) - timedelta(days=scan_days)
         since_date = since.strftime("%d-%b-%Y")
+        seed = cfg.get("seed")
 
         all_messages: list[dict] = []
         own_addresses: set[str] = set()
@@ -350,7 +905,6 @@ class GmailConnector(BaseConnector):
             addr = acct["address"]
             pwd = _get_credential("icontext-gmail", addr)
             if not pwd:
-                # Fallback: check old plaintext format for migration
                 pwd = acct.get("app_password", "")
             if not pwd:
                 _print(_warn(f"no password for {addr} — run: icontext connect gmail"))
@@ -386,14 +940,10 @@ class GmailConnector(BaseConnector):
                 continue
 
             try:
-                # Scan inbox
-                inbox_msgs = _fetch_folder(conn, "INBOX", since_date, 300)
-                total = len(inbox_msgs)
-
-                # Scan sent
+                inbox_msgs = _fetch_folder(conn, "INBOX", since_date, 300, "inbox")
                 sent_folder = _find_sent_folder(conn)
-                sent_msgs = _fetch_folder(conn, sent_folder, since_date, 200)
-                total += len(sent_msgs)
+                sent_msgs = _fetch_folder(conn, sent_folder, since_date, 200, "sent")
+                total = len(inbox_msgs) + len(sent_msgs)
                 all_messages.extend(inbox_msgs)
                 all_messages.extend(sent_msgs)
 
@@ -414,103 +964,49 @@ class GmailConnector(BaseConnector):
                 "  Possible causes:\n"
                 "    - IMAP is disabled in Gmail settings → enable at gmail.com/settings → Forwarding and POP/IMAP\n"
                 "    - App password is stale — re-run: icontext connect gmail\n"
-                "    - No messages in the last 90 days (scan window)"
+                f"    - No messages in the last {scan_days} days (scan window)"
             )
 
-        summary = _build_summary(all_messages, own_addresses)
-
-        # Trim to ~8000 chars for Gemini
-        if len(summary) > 8000:
-            summary = summary[:8000] + "\n[truncated]"
-
-        prompt = _SYNTHESIS_PROMPT.format(summary=summary)
-
-        gemini_output = self.gemini_synthesize(prompt)
-
-        if not gemini_output.strip():
-            raise RuntimeError(
-                "Gemini returned an empty response.\n"
-                "  This is usually a transient API issue — try again:\n"
-                "    icontext sync gmail\n"
-                "  If it keeps happening, check your key at: https://aistudio.google.com/apikey"
-            )
-
-        write_label = "writing profile..."
+        # Run the 3-stage pipeline.
+        synth_label = "synthesizing profile (3-stage)..."
         if sys.stdout.isatty():
-            print(f"  {_c(C.CYAN, '→')} {write_label:<{label_width}}", end="", flush=True)
+            print(f"  {_c(C.CYAN, '→')} {synth_label}", flush=True)
         else:
-            _print(_info(write_label))
+            _print(_info(synth_label))
 
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        account_list = ", ".join(a["address"] for a in accounts)
-        profile = (
-            f"---\n"
-            f"source: Gmail (last {scan_days} days)\n"
-            f"accounts: {account_list}\n"
-            f"generated: {today}\n"
-            f"refresh: icontext sync gmail\n"
-            f"---\n\n"
-            f"{gemini_output}\n"
+        facts, validated, profile = run_pipeline(
+            self, all_messages, own_addresses, scan_days, seed=seed,
         )
 
-        self.write_profile(vault, "internal/profile/user.md", profile)
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        account_list = [a["address"] for a in accounts]
+        sources = ["Gmail"]
 
-        # Write modular section files
-        relationships_text = _extract_section(gemini_output, "relationships")
-        if relationships_text:
-            self.write_profile(
-                vault, "internal/profile/relationships.md",
-                f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{relationships_text}\n",
-            )
-
-        projects_text = _extract_section(gemini_output, "projects")
-        if projects_text:
-            self.write_profile(
-                vault, "internal/profile/projects.md",
-                f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{projects_text}\n",
-            )
+        # Render deterministically.
+        full_md = _render_profile_md(profile, sources, scan_days, account_list, today)
+        self.write_profile(vault, "internal/profile/user.md", full_md)
+        self.write_profile(
+            vault, "internal/profile/relationships.md",
+            _render_relationships_md(profile, today),
+        )
+        self.write_profile(
+            vault, "internal/profile/projects.md",
+            _render_projects_md(profile, today),
+        )
+        self.write_profile(
+            vault, "shareable/profile/context-card.md",
+            _render_card_md(profile, today),
+        )
 
         if sys.stdout.isatty():
-            print(f" {_c(C.GREEN, '✓')}")
+            print(f"  {_c(C.GREEN, '✓')} profile written")
         else:
             _print(_ok("profile written"))
 
-        # Write shareable context card
-        card_label = "writing context card..."
-        if sys.stdout.isatty():
-            print(f"  {_c(C.CYAN, '→')} {card_label:<{label_width}}", end="", flush=True)
-        else:
-            _print(_info(card_label))
-
-        card_prompt = (
-            "From this user profile, write a short shareable context card (under 200 words) "
-            "that is safe to share with collaborators. Include: who they are, what they're "
-            "working on, their background. No email patterns, no private relationship details. "
-            "Just professional public-facing context.\n\nPROFILE:\n" + gemini_output
-        )
-        try:
-            card_content = self.gemini_synthesize(card_prompt)
-            if card_content.strip():
-                self.write_profile(
-                    vault, "shareable/profile/context-card.md",
-                    f"---\nshareable: true\ngenerated: {today}\nsource: icontext\n---\n\n{card_content}\n",
-                )
-                if sys.stdout.isatty():
-                    print(f" {_c(C.GREEN, '✓')}")
-                else:
-                    _print(_ok("context card written"))
-            else:
-                if sys.stdout.isatty():
-                    print(f" {_c(C.YELLOW, '!')}")
-                _print(_warn("context card skipped (empty response)"))
-        except Exception as exc:
-            if sys.stdout.isatty():
-                print(f" {_c(C.YELLOW, '!')}")
-            _print(_warn(f"could not generate context card: {exc}"))
-
-        # Update last_sync in config
+        # Update last_sync and commit once.
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.save_config(vault, cfg)
+        self.commit_profiles(vault)
 
         return f"Gmail sync complete: {len(all_messages)} messages from {len(accounts)} account(s)"
 
@@ -524,3 +1020,16 @@ class GmailConnector(BaseConnector):
         else:
             summary = "not configured"
         return {"connected": connected, "last_sync": last_sync, "summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible public symbols (kept for existing tests / imports)
+# ---------------------------------------------------------------------------
+
+def _extract_section(text: str, section_name: str) -> str:
+    """Legacy section extractor (kept for back-compat tests). Not used in new pipeline."""
+    pattern = rf"<!--\s*SECTION:\s*{re.escape(section_name)}\s*-->(.*?)<!--\s*END SECTION\s*-->"
+    m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return ""

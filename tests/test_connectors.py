@@ -413,3 +413,398 @@ class TestKeychainHelpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# 3-stage pipeline: data parsing
+# ---------------------------------------------------------------------------
+
+class TestParseMessageHeaders(unittest.TestCase):
+
+    def test_handles_folded_continuation_lines(self):
+        from connectors.gmail import _parse_message_headers
+        # RFC 2822 folded To: header — secondary recipients on continuation lines.
+        raw = (
+            b"Subject: Re: Project update\r\n"
+            b"From: Alice <alice@example.com>\r\n"
+            b"To: Bob <bob@example.com>,\r\n"
+            b"\tCarol <carol@example.com>,\r\n"
+            b" Dave <dave@example.com>\r\n"
+            b"Date: Mon, 01 Jan 2024 12:00:00 +0000\r\n"
+            b"\r\n"
+        )
+        rec = _parse_message_headers(raw)
+        self.assertEqual(rec["subject"], "Re: Project update")
+        self.assertIn("alice@example.com", rec["from_addrs"])
+        self.assertIn("bob@example.com", rec["to"])
+        self.assertIn("carol@example.com", rec["to"])
+        self.assertIn("dave@example.com", rec["to"])
+
+    def test_handles_display_name_with_comma(self):
+        from connectors.gmail import _parse_message_headers
+        # "Doe, Jane" must NOT split into 'doe' and 'jane@...'
+        raw = (
+            b'Subject: Hi\r\n'
+            b'From: "Doe, Jane" <jane@example.com>\r\n'
+            b"To: bob@example.com\r\n"
+            b"\r\n"
+        )
+        rec = _parse_message_headers(raw)
+        self.assertEqual(rec["from_addrs"], ["jane@example.com"])
+        # The pair preserves the full display name.
+        self.assertTrue(any("Doe, Jane" in name for name, _ in rec["from_pairs"]))
+
+    def test_extracts_cc_field(self):
+        from connectors.gmail import _parse_message_headers
+        raw = (
+            b"Subject: Test\r\n"
+            b"From: alice@example.com\r\n"
+            b"To: bob@example.com\r\n"
+            b"Cc: carol@example.com, dave@example.com\r\n"
+            b"\r\n"
+        )
+        rec = _parse_message_headers(raw)
+        self.assertIn("carol@example.com", rec["cc"])
+        self.assertIn("dave@example.com", rec["cc"])
+
+    def test_handles_mime_encoded_subject(self):
+        from connectors.gmail import _parse_message_headers
+        raw = (
+            b"Subject: =?UTF-8?B?VGVzdCDDhMOWw5w=?=\r\n"
+            b"From: alice@example.com\r\n"
+            b"\r\n"
+        )
+        rec = _parse_message_headers(raw)
+        # Should decode to "Test ÄÖÜ"
+        self.assertIn("Test", rec["subject"])
+        self.assertIn("Ä", rec["subject"])
+
+
+class TestRelationshipSignal(unittest.TestCase):
+
+    def test_filters_single_message_from_welcome_address(self):
+        from connectors.gmail import _is_relationship_signal
+        self.assertFalse(_is_relationship_signal(
+            1, "welcome@somesaas.com", ["Welcome to SomeSaaS"],
+        ))
+
+    def test_filters_majority_welcome_subjects(self):
+        from connectors.gmail import _is_relationship_signal
+        self.assertFalse(_is_relationship_signal(
+            3, "founder@somesaas.com",
+            ["Welcome to SomeSaaS", "Verify your email", "Confirm your account"],
+        ))
+
+    def test_keeps_real_relationship_with_multiple_messages(self):
+        from connectors.gmail import _is_relationship_signal
+        self.assertTrue(_is_relationship_signal(
+            5, "cedrik@example.com",
+            ["Floom roadmap", "Re: Floom roadmap", "Demo prep", "Follow-up"],
+        ))
+
+    def test_filters_one_shot_from_any_sender(self):
+        from connectors.gmail import _is_relationship_signal
+        # A single message from anybody is too thin.
+        self.assertFalse(_is_relationship_signal(
+            1, "newperson@example.com", ["Quick question"],
+        ))
+
+    def test_keeps_known_address_with_two_substantive_messages(self):
+        from connectors.gmail import _is_relationship_signal
+        self.assertTrue(_is_relationship_signal(
+            2, "simon@scaile.tech",
+            ["Re: SCAILE board prep", "Follow-up on Tuesday"],
+        ))
+
+
+class TestValidateEntities(unittest.TestCase):
+
+    def test_drops_one_shot_people(self):
+        from connectors.gmail import _validate_entities
+        extracted = {
+            "people": [
+                {"name": "Real Person", "email": "real@example.com",
+                 "evidence_messages": 5},
+                {"name": "One Shot", "email": "oneshot@example.com",
+                 "evidence_messages": 1},
+            ],
+            "projects": [],
+            "topics": [],
+        }
+        facts = {
+            "own_addresses": [],
+            "counterparties": [
+                {"email": "real@example.com", "total": 5,
+                 "inbound": 2, "outbound": 3, "last_seen": "2026-04-01"},
+                {"email": "oneshot@example.com", "total": 1,
+                 "inbound": 1, "outbound": 0, "last_seen": "2026-04-01"},
+            ],
+        }
+        result = _validate_entities(extracted, facts)
+        emails = [p["email"] for p in result["people"]]
+        self.assertIn("real@example.com", emails)
+        self.assertNotIn("oneshot@example.com", emails)
+
+    def test_dedupes_by_email(self):
+        from connectors.gmail import _validate_entities
+        extracted = {
+            "people": [
+                {"name": "Alice A", "email": "alice@example.com",
+                 "evidence_messages": 5},
+                {"name": "Alice B", "email": "alice@example.com",
+                 "evidence_messages": 5},
+            ],
+            "projects": [], "topics": [],
+        }
+        facts = {"own_addresses": [], "counterparties": [
+            {"email": "alice@example.com", "total": 5, "inbound": 3,
+             "outbound": 2, "last_seen": "2026-04-01"},
+        ]}
+        result = _validate_entities(extracted, facts)
+        self.assertEqual(len(result["people"]), 1)
+
+    def test_drops_projects_with_insufficient_evidence(self):
+        from connectors.gmail import _validate_entities
+        extracted = {
+            "people": [],
+            "projects": [
+                {"name": "Real Project", "evidence_subjects": ["A", "B", "C"]},
+                {"name": "Thin Project", "evidence_subjects": ["X"]},
+                {"name": "No Evidence", "evidence_subjects": []},
+            ],
+            "topics": [],
+        }
+        facts = {"own_addresses": [], "counterparties": []}
+        result = _validate_entities(extracted, facts)
+        names = [p["name"] for p in result["projects"]]
+        self.assertIn("Real Project", names)
+        self.assertNotIn("Thin Project", names)
+        self.assertNotIn("No Evidence", names)
+
+    def test_skips_own_addresses(self):
+        from connectors.gmail import _validate_entities
+        extracted = {
+            "people": [
+                {"name": "Me", "email": "me@example.com",
+                 "evidence_messages": 50},
+            ],
+            "projects": [], "topics": [],
+        }
+        facts = {"own_addresses": ["me@example.com"], "counterparties": []}
+        result = _validate_entities(extracted, facts)
+        self.assertEqual(result["people"], [])
+
+
+class TestRenderProfileMd(unittest.TestCase):
+
+    def test_renders_full_profile(self):
+        from connectors.gmail import _render_profile_md
+        profile = {
+            "identity_summary": "You are Federico, building Floom.",
+            "key_relationships": [
+                {"name": "Cedrik", "company": "Floom", "role": "Co-founder",
+                 "frequency": "weekly", "warmth": "hot", "context": "Daily collab"},
+            ],
+            "recurring_topics": ["Floom launch", "v26 wireframes"],
+            "active_projects": [
+                {"name": "Floom", "status": "shipping v26",
+                 "participants": ["Cedrik", "Simon"]},
+            ],
+            "communication_patterns": "Mostly outbound to Floom team.",
+            "pending_items": ["Foreign founder application"],
+            "shareable_card": "Federico builds Floom.",
+        }
+        md = _render_profile_md(profile, ["Gmail"], 90, ["fede@floom.dev"], "2026-05-02")
+        self.assertIn("Identity Summary", md)
+        self.assertIn("You are Federico", md)
+        self.assertIn("| Cedrik |", md)
+        self.assertIn("Floom launch", md)
+        self.assertIn("**Floom**", md)
+        self.assertIn("Foreign founder application", md)
+
+    def test_handles_empty_sections(self):
+        from connectors.gmail import _render_profile_md
+        profile = {
+            "identity_summary": "",
+            "key_relationships": [],
+            "recurring_topics": [],
+            "active_projects": [],
+            "communication_patterns": "",
+            "pending_items": [],
+            "shareable_card": "",
+        }
+        md = _render_profile_md(profile, ["Gmail"], 90, [], "2026-05-02")
+        # All sections present even when data is empty.
+        self.assertIn("Identity Summary", md)
+        self.assertIn("Key Relationships", md)
+        self.assertIn("Active Projects", md)
+        self.assertIn("Pending / Watch", md)
+        self.assertIn("_(none)_", md)
+
+    def test_card_renders_as_safe_md(self):
+        from connectors.gmail import _render_card_md
+        out = _render_card_md({"shareable_card": "Federico builds Floom."}, "2026-05-02")
+        self.assertIn("shareable: true", out)
+        self.assertIn("Federico builds Floom.", out)
+
+
+class TestBuildCompactFacts(unittest.TestCase):
+
+    def test_does_not_count_inbox_to_addresses_as_outbound(self):
+        """Regression: To: addresses on inbox messages must NOT be treated as outbound."""
+        from connectors.gmail import _build_compact_facts
+        own = {"me@example.com"}
+        # Inbox message addressed to a mailing list — it should not count
+        # the list address as an outbound recipient.
+        msgs = [
+            {
+                "direction": "inbox",
+                "subject": "Newsletter from Foo",
+                "from_addrs": ["foo@news.example.com"],
+                "from_pairs": [("Foo News", "foo@news.example.com")],
+                "to": ["me@example.com", "list@news.example.com"],
+                "to_pairs": [("Me", "me@example.com"), ("List", "list@news.example.com")],
+                "cc": [],
+                "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            },
+        ]
+        facts = _build_compact_facts(msgs, own, scan_days=90)
+        # foo@news... should be considered (will be filtered as bot or 1-shot, but
+        # the key invariant: list@news... is NOT logged as something the user sent to.
+        for cp in facts["counterparties"]:
+            if cp["email"] == "list@news.example.com":
+                # If it shows up at all, outbound must be 0.
+                self.assertEqual(cp["outbound"], 0)
+
+    def test_counts_sent_to_addresses_as_outbound(self):
+        from connectors.gmail import _build_compact_facts
+        own = {"me@example.com"}
+        msgs = [
+            {
+                "direction": "sent",
+                "subject": "Project plan",
+                "from_addrs": ["me@example.com"],
+                "from_pairs": [("Me", "me@example.com")],
+                "to": ["cedrik@example.com"],
+                "to_pairs": [("Cedrik", "cedrik@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            },
+            {
+                "direction": "sent",
+                "subject": "Re: Project plan",
+                "from_addrs": ["me@example.com"],
+                "from_pairs": [("Me", "me@example.com")],
+                "to": ["cedrik@example.com"],
+                "to_pairs": [("Cedrik", "cedrik@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Tue, 02 Apr 2024 12:00:00 +0000",
+            },
+        ]
+        facts = _build_compact_facts(msgs, own, scan_days=90)
+        emails = {cp["email"]: cp for cp in facts["counterparties"]}
+        self.assertIn("cedrik@example.com", emails)
+        self.assertEqual(emails["cedrik@example.com"]["outbound"], 2)
+        self.assertEqual(emails["cedrik@example.com"]["inbound"], 0)
+        self.assertEqual(emails["cedrik@example.com"]["direction"], "you_send")
+
+
+class TestRunPipeline(unittest.TestCase):
+
+    def test_runs_all_three_stages_with_mocked_gemini(self):
+        from connectors.gmail import run_pipeline
+        # Build a fake connector that returns canned JSON for both stages.
+        connector = MagicMock()
+        extract_response = {
+            "people": [
+                {"name": "Cedrik Coelho", "email": "cedrik@example.com",
+                 "company": "Floom", "evidence_messages": 6,
+                 "direction": "balanced", "topics": ["Floom"]},
+            ],
+            "projects": [
+                {"name": "Floom v26",
+                 "evidence_subjects": ["Floom v26 plan", "Re: Floom v26 plan"]},
+            ],
+            "topics": ["Floom"],
+        }
+        profile_response = {
+            "identity_summary": "You build Floom.",
+            "key_relationships": [
+                {"name": "Cedrik", "company": "Floom", "role": "Co-founder",
+                 "frequency": "weekly", "warmth": "hot", "context": "Daily collab"},
+            ],
+            "recurring_topics": ["Floom"],
+            "active_projects": [{"name": "Floom v26", "status": "shipping"}],
+            "communication_patterns": "Outbound to Floom team.",
+            "pending_items": [],
+            "shareable_card": "Federico builds Floom.",
+        }
+        connector.gemini_call_with_retry.side_effect = [extract_response, profile_response]
+
+        msgs = [
+            {
+                "direction": "sent",
+                "subject": f"Floom v26 plan {i}",
+                "from_addrs": ["me@example.com"],
+                "from_pairs": [("Me", "me@example.com")],
+                "to": ["cedrik@example.com"],
+                "to_pairs": [("Cedrik", "cedrik@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            } for i in range(3)
+        ]
+        msgs += [
+            {
+                "direction": "inbox",
+                "subject": f"Re: Floom v26 plan {i}",
+                "from_addrs": ["cedrik@example.com"],
+                "from_pairs": [("Cedrik", "cedrik@example.com")],
+                "to": ["me@example.com"],
+                "to_pairs": [("Me", "me@example.com")],
+                "cc": [], "cc_pairs": [],
+                "date": "Mon, 01 Apr 2024 12:00:00 +0000",
+            } for i in range(3)
+        ]
+
+        facts, validated, profile = run_pipeline(
+            connector, msgs, {"me@example.com"}, scan_days=90,
+        )
+        self.assertEqual(connector.gemini_call_with_retry.call_count, 2)
+        # Facts include the counterparty.
+        cp_emails = [c["email"] for c in facts["counterparties"]]
+        self.assertIn("cedrik@example.com", cp_emails)
+        # Validated keeps the person.
+        self.assertEqual(len(validated["people"]), 1)
+        # Profile passes through.
+        self.assertEqual(profile["identity_summary"], "You build Floom.")
+
+
+class TestGeminiRetryWrapper(unittest.TestCase):
+
+    def test_retries_on_transient_failure_then_succeeds(self):
+        from connectors.gmail import GmailConnector
+        gmail = GmailConnector()
+        call_count = {"n": 0}
+
+        def fake_synth(prompt):
+            call_count["n"] += 1
+            if call_count["n"] < 2:
+                raise RuntimeError("transient 503")
+            return "ok"
+
+        with patch.object(gmail, "gemini_synthesize", side_effect=fake_synth):
+            with patch("connectors.base.time.sleep"):  # don't actually sleep
+                result = gmail.gemini_call_with_retry("prompt", schema=None, max_retries=2)
+        self.assertEqual(result, "ok")
+        self.assertEqual(call_count["n"], 2)
+
+    def test_raises_after_max_retries(self):
+        from connectors.gmail import GmailConnector
+        gmail = GmailConnector()
+
+        with patch.object(gmail, "gemini_synthesize", side_effect=RuntimeError("permanent")):
+            with patch("connectors.base.time.sleep"):
+                with self.assertRaises(RuntimeError) as ctx:
+                    gmail.gemini_call_with_retry("prompt", schema=None, max_retries=2)
+        self.assertIn("permanent", str(ctx.exception))
