@@ -1,0 +1,97 @@
+ICONTEXT LAUNCH VIDEO SCRIPT v2
+"AI has Alzheimer's, until it doesn't"
+Total runtime: ~75 seconds
+
+────────────────────────────────────────────────
+
+[0:00 — 0:04]  HOOK
+Visual: You, direct to camera. Phone held up. Or screen capture of a fresh Claude Code session.
+
+  "AI has Alzheimer's. Until it doesn't."
+
+(beat, pause for impact)
+
+
+[0:04 — 0:18]  THE PROBLEM
+Visual: Quick cuts of Claude Code starting fresh, Cursor with empty context, ChatGPT asking "what are you working on?" Maybe a "context compaction" warning popping up.
+
+  "Every coding agent you use forgets who you are the second you close the tab.
+
+  Compaction wipes the memory. New session, blank slate. Re-explain your projects. Re-explain your team. Re-explain everything. Every. Single. Time."
+
+
+[0:18 — 0:38]  PERSONAL PROOF
+Visual: B-roll of you. SF skyline. Founders Inc. Phone screens with apps (flight claim email, lawyer thread, tax doc). Or just you talking with screen-share overlay listing things as you say them.
+
+  "And still, with this broken AI:
+
+  I applied to 30 programs in the Bay. Got into Founders Inc.
+  AI handled my flight claim.
+  AI manages my taxes and my legal stuff.
+
+  It works. But only because I solved the memory problem first."
+
+(pause)
+
+
+[0:38 — 0:48]  THE REVEAL
+Visual: Cut to a terminal. Two commands running. Then the ~/context/ folder opening in Finder.
+
+  "One folder. Three skill files.
+
+  That's icontext. Your agents read from it before answering.
+  They write back to it as they learn.
+
+  Every agent. Same brain."
+
+
+[0:48 — 1:05]  THREE FEATURES
+Three quick visual cards or screen recordings. Each one beat.
+
+  "One: one folder, every agent. Claude Code, Cursor, Codex — they all read the same ~/context/."
+  Visual: Three terminals side by side, all loading context from the same folder.
+
+  "Two: it builds itself. Open Claude Code, say 'populate my icontext profile'. It reads your Gmail using its own tools. No API key. No server call."
+  Visual: Claude Code session running the populate skill, profile MD appearing.
+
+  "Three: yours forever. Encrypted on your machine. Open source. You can read every line of what it knows about you."
+  Visual: Lock icon. ~/context/ open in Finder with the vault folder highlighted.
+
+
+[1:05 — 1:15]  CTA
+Visual: Install command big and clean. icontext.dev URL.
+
+  "icontext. Open source.
+
+  Two commands. No API key. Your AI never forgets you again.
+
+  icontext.dev"
+
+(end on the URL on screen, hold 2 seconds)
+
+────────────────────────────────────────────────
+
+HOOK ALTERNATES (test before recording)
+
+1. "AI has Alzheimer's. Until it doesn't." (strongest, pattern interrupt)
+2. "Your Claude Code session forgets you. Mine doesn't."
+3. "I made AI remember who I am. One folder. That's it."
+4. "Compaction is the silent killer of AI productivity. Here's the fix."
+
+────────────────────────────────────────────────
+
+DELIVERY NOTES
+
+- Don't sell. State facts. Problem is real, solution is yours, here's the link.
+- The personal-proof section is the heart. Don't rush. Each accomplishment is a beat.
+- Pause before "One folder." That's the reveal. Let it land.
+- End flat. No "what are you waiting for?" energy. Confident, calm.
+
+────────────────────────────────────────────────
+
+RECORDING NOTES
+
+- Format: 9:16 vertical for X/LinkedIn/TikTok native. Re-cut to 16:9 for YouTube + landing page hero.
+- No royalty-free background music. Single ambient pad track or silence with sharp edits. Music makes it feel like a SaaS ad, which kills trust.
+- No captions burned in for the launch cut. Add captions in post.
+- Shoot ratio: record each section 3-4 times. The HOOK alone deserves 10+ takes.
