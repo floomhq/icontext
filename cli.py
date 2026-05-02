@@ -19,7 +19,11 @@ def _resolve_vault(vault_arg: str | None) -> Path:
     if default.exists():
         return default
     sys.exit(
-        "error: vault not found. Pass --vault PATH, set ICONTEXT_VAULT, or create ~/context"
+        "Vault not found.\n"
+        "\n"
+        "Run 'icontext init' first to create your vault, or specify the path:\n"
+        "  icontext --vault /path/to/your/vault <command>\n"
+        "  ICONTEXT_VAULT=/path/to/your/vault icontext <command>"
     )
 
 
@@ -116,7 +120,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
             cfg = json.loads(cfg_path.read_text())
             sources_to_sync = list(cfg.keys())
         if not sources_to_sync:
-            print("No sources configured. Run: icontext connect gmail")
+            print("No sources configured yet.")
+            print()
+            print("Connect a source first:")
+            print("  icontext connect gmail      # connect your Gmail inbox")
+            print("  icontext connect linkedin   # add your LinkedIn profile")
             return 1
 
     exit_code = 0
@@ -138,8 +146,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         print("Claude Code now knows who you are. To verify, open a new Claude Code")
         print('session and ask: "What do you know about me?"')
         print()
-        print("Profile: ~/context/internal/profile/user.md")
-        print("Refresh: icontext sync")
+        print(f"Profile: {vault}/internal/profile/user.md")
+        print("Refresh:  icontext sync")
         print("─────────────────────────────────────────────")
 
     return exit_code
@@ -239,14 +247,15 @@ def cmd_init(args: argparse.Namespace) -> int:
                 check=False,
             )
 
-    # 4. Insert CLAUDE.md snippet
+    # 4. Insert CLAUDE.md snippet (use the actual resolved vault path so it
+    #    works even when ICONTEXT_VAULT env var is not set in the shell)
     claude_md = Path("~/.claude/CLAUDE.md").expanduser()
     snippet = (
         "\n<!-- icontext -->\n"
         "## AI Context (icontext)\n"
-        "Context vault is at ~/context. Profile lives at internal/profile/user.md.\n"
-        "At the start of each session: if internal/profile/user.md was last modified more than 7 days ago, "
-        "run `icontext sync` in the background.\n"
+        f"Context vault is at {vault}. Profile lives at {vault}/internal/profile/user.md.\n"
+        "At the start of each session: if the profile was last modified more than 7 days ago, "
+        f"run `icontext sync --vault {vault}` in the background.\n"
         "MCP tools available: search_vault, get_profile, sync_source, list_sources.\n"
         "<!-- /icontext -->\n"
     )
@@ -264,13 +273,14 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # 5. Success message
     print()
+    print("─────────────────────────────────────────────")
     print(f"icontext: vault ready at {vault}")
-    print("icontext: CLAUDE.md updated — Claude Code will auto-sync your profile")
     print()
-    print("Next:")
+    print("Next steps:")
     print("  icontext connect gmail      # connect your Gmail")
     print("  icontext connect linkedin   # add your LinkedIn profile")
-    print("  icontext sync               # build your profile now")
+    print("  icontext sync               # build your profile")
+    print("─────────────────────────────────────────────")
     return 0
 
 
@@ -278,10 +288,15 @@ def cmd_share(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     card_path = vault / "shareable" / "profile" / "context-card.md"
     if not card_path.exists():
-        print("error: context card not found. Run: icontext sync")
+        print("No context card found yet.")
+        print()
+        print("The context card is created automatically during your first Gmail sync.")
+        print("Run:")
+        print("  icontext connect gmail   # if not done yet")
+        print("  icontext sync            # generates the card")
         return 1
     print(card_path.read_text())
-    print(f"Share this file: {card_path}")
+    print(f"\nFile location: {card_path}")
     return 0
 
 

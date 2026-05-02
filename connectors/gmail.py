@@ -261,12 +261,28 @@ class GmailConnector(BaseConnector):
                 continue
             label = input("Label (e.g. PRIMARY, WORK — or just press Enter): ").strip() or "PRIMARY"
 
-            # Test the connection
+            # Test the connection (30-second timeout covers slow network + bad credentials)
             try:
-                conn = imaplib.IMAP4_SSL("imap.gmail.com")
+                conn = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
                 conn.login(addr, pwd)
                 conn.logout()
                 print(f"icontext: gmail connected ({addr})")
+            except imaplib.IMAP4.error as exc:
+                # IMAP-level auth error — likely wrong app password
+                print(f"Login failed: {exc}")
+                print("Tip: make sure you copied the 16-character app password exactly (no spaces).")
+                retry = input("Try again? [y/N]: ").strip().lower()
+                if retry != "y":
+                    break
+                continue
+            except OSError as exc:
+                # Network / DNS / timeout
+                print(f"Network error: {exc}")
+                print("Check your internet connection and try again.")
+                retry = input("Try again? [y/N]: ").strip().lower()
+                if retry != "y":
+                    break
+                continue
             except Exception as exc:
                 print(f"Connection failed: {exc}")
                 retry = input("Try again? [y/N]: ").strip().lower()
@@ -287,7 +303,12 @@ class GmailConnector(BaseConnector):
         cfg["accounts"] = accounts
         cfg.setdefault("scan_days", 90)
         self.save_config(vault, cfg)
+        cfg_path = vault / ".icontext" / "connectors.json"
         print(f"Saved {len(accounts)} account(s) to config.")
+        print()
+        print(f"Note: credentials are stored in {cfg_path}")
+        print("Make sure this vault is not pushed to a public git repository.")
+        print("Run 'git remote -v' to check — or keep the vault local-only.")
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
@@ -309,8 +330,15 @@ class GmailConnector(BaseConnector):
 
             print(f"Connecting to {addr}...")
             try:
-                conn = imaplib.IMAP4_SSL("imap.gmail.com")
+                conn = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
                 conn.login(addr, pwd)
+            except imaplib.IMAP4.error as exc:
+                print(f"  Login failed for {addr}: {exc}")
+                print(f"  Tip: re-run 'icontext connect gmail' to update the app password for {addr}.")
+                continue
+            except OSError as exc:
+                print(f"  Network error connecting to {addr}: {exc}")
+                continue
             except Exception as exc:
                 print(f"  Failed to connect to {addr}: {exc}")
                 continue
@@ -346,6 +374,11 @@ class GmailConnector(BaseConnector):
         print("Synthesizing profile with Gemini...")
         gemini_output = self.gemini_synthesize(prompt)
 
+        if not gemini_output.strip():
+            raise RuntimeError(
+                "Gemini returned an empty response. Try again with: icontext sync gmail"
+            )
+
         today = datetime.now(UTC).strftime("%Y-%m-%d")
         account_list = ", ".join(a["address"] for a in accounts)
         profile = (
@@ -375,18 +408,24 @@ class GmailConnector(BaseConnector):
                 f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{projects_text}\n",
             )
 
-        # Write shareable context card
+        # Write shareable context card (only if we have a real profile to summarize)
+        print("  Writing shareable context card...")
         card_prompt = (
             "From this user profile, write a short shareable context card (under 200 words) "
             "that is safe to share with collaborators. Include: who they are, what they're "
             "working on, their background. No email patterns, no private relationship details. "
             "Just professional public-facing context.\n\nPROFILE:\n" + gemini_output
         )
-        card_content = self.gemini_synthesize(card_prompt)
-        self.write_profile(
-            vault, "shareable/profile/context-card.md",
-            f"---\nshareable: true\ngenerated: {today}\nsource: icontext\n---\n\n{card_content}\n",
-        )
+        try:
+            card_content = self.gemini_synthesize(card_prompt)
+            if card_content.strip():
+                self.write_profile(
+                    vault, "shareable/profile/context-card.md",
+                    f"---\nshareable: true\ngenerated: {today}\nsource: icontext\n---\n\n{card_content}\n",
+                )
+        except Exception as exc:
+            # Card is a nice-to-have — don't fail the whole sync over it
+            print(f"  Warning: could not generate context card: {exc}")
 
         # Update last_sync in config
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

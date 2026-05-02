@@ -292,11 +292,23 @@ install_actions
 if [ "$MODE" = "agents" ]; then
     echo "icontext: installing agent integrations"
     python3 "$VAULT/.icontext/scripts/install_claude_integration.py" --icontext-root "$ICONTEXT_ROOT" --repo "$VAULT"
-    # Symlink icontext CLI to PATH
-    if [ -d "$HOME/.local/bin" ] || mkdir -p "$HOME/.local/bin"; then
-        ln -sf "$VAULT/.icontext/cli.py" "$HOME/.local/bin/icontext"
-        chmod +x "$VAULT/.icontext/cli.py"
+    # Symlink icontext CLI to PATH — but only if the target file exists.
+    # When called from `icontext init`, cli.py is copied to the vault above, so
+    # it always exists at this point. When called standalone before `icontext init`
+    # has run, the vault is a fresh git repo and cli.py may not be there yet.
+    CLI_TARGET="$VAULT/.icontext/cli.py"
+    if [ -f "$CLI_TARGET" ]; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$CLI_TARGET" "$HOME/.local/bin/icontext"
+        chmod +x "$CLI_TARGET"
         echo "icontext: CLI available at ~/.local/bin/icontext"
+    else
+        # Fall back to linking directly from the icontext source repo
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$ICONTEXT_ROOT/cli.py" "$HOME/.local/bin/icontext"
+        chmod +x "$ICONTEXT_ROOT/cli.py"
+        echo "icontext: CLI linked from source at ~/.local/bin/icontext"
+        echo "icontext: (vault cli.py will be preferred after next install)"
     fi
 fi
 

@@ -9,6 +9,39 @@ BIN_DIR="$HOME/.local/bin"
 
 echo "icontext: installing..."
 
+# --- Dependency checks -------------------------------------------------------
+MISSING_DEPS=()
+
+if ! command -v git &>/dev/null; then
+    MISSING_DEPS+=("git")
+fi
+
+if ! command -v python3 &>/dev/null; then
+    MISSING_DEPS+=("python3")
+fi
+
+if [ "${#MISSING_DEPS[@]}" -gt 0 ]; then
+    echo ""
+    echo "icontext: missing required tools: ${MISSING_DEPS[*]}"
+    echo ""
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "On Mac, install them with:"
+        for dep in "${MISSING_DEPS[@]}"; do
+            case "$dep" in
+                git)    echo "  xcode-select --install   (installs git + other dev tools)" ;;
+                python3) echo "  brew install python3     (or: xcode-select --install)" ;;
+            esac
+        done
+    else
+        echo "Install with your package manager, e.g.:"
+        echo "  sudo apt install git python3"
+    fi
+    echo ""
+    echo "Then re-run: curl -fsSL https://icontext.dev/install | bash"
+    exit 1
+fi
+# -----------------------------------------------------------------------------
+
 # Clone or update
 if [ -d "$ICONTEXT_DIR/.git" ]; then
     echo "icontext: updating $ICONTEXT_DIR"
@@ -19,6 +52,9 @@ else
 fi
 
 # Install CLI
+# Note: in agents mode, install.sh creates a symlink from ~/.local/bin/icontext
+# into the vault AFTER the vault is created by `icontext init`. We install a
+# direct symlink to the repo here so the CLI is available immediately.
 mkdir -p "$BIN_DIR"
 if command -v pip3 &>/dev/null && pip3 install -e "$ICONTEXT_DIR" --quiet 2>/dev/null; then
     echo "icontext: CLI installed via pip"

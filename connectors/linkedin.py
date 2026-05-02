@@ -36,22 +36,33 @@ DATA:
 def _read_pdf_text(pdf_path: Path) -> str:
     """Extract text from a PDF. Tries pdftotext first, then pypdf."""
     # Try pdftotext first (brew install poppler / apt install poppler-utils)
-    result = subprocess.run(
+    pdftotext_result = subprocess.run(
         ["pdftotext", str(pdf_path), "-"],
         capture_output=True, text=True,
     )
-    if result.returncode == 0:
-        return result.stdout
+    if pdftotext_result.returncode == 0 and pdftotext_result.stdout.strip():
+        return pdftotext_result.stdout
 
     # Fallback: try pypdf if available
     try:
         import pypdf
         reader = pypdf.PdfReader(str(pdf_path))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text
+        raise RuntimeError(
+            f"PDF appears to be empty or image-only: {pdf_path.name}\n"
+            "Make sure you saved it via LinkedIn → More → Save to PDF (not a browser print)."
+        )
     except ImportError:
         raise RuntimeError(
-            "Cannot read PDF. Install pdftotext: brew install poppler\n"
-            "Or: pip install pypdf"
+            "Cannot read PDF — no PDF reader found.\n"
+            "\n"
+            "Fix (pick one):\n"
+            "  Option A: brew install poppler   (installs pdftotext)\n"
+            "  Option B: pip install pypdf\n"
+            "\n"
+            "After installing, re-run: icontext connect linkedin"
         )
 
 
@@ -68,6 +79,7 @@ class LinkedInConnector(BaseConnector):
             print("  2. Click the \"More\" button below your name")
             print("  3. Click \"Save to PDF\"")
             print("  4. The PDF downloads to your Downloads folder")
+            print("     (usually named 'Profile.pdf')")
             print()
             raw_path = input("Path to your LinkedIn PDF [~/Downloads/Profile.pdf]: ").strip()
             if not raw_path:
@@ -80,8 +92,24 @@ class LinkedInConnector(BaseConnector):
         cfg = self.load_config(vault)
 
         if not export_path.exists():
+            # Try to help the user find their file
+            downloads = Path("~/Downloads").expanduser()
+            pdf_candidates = sorted(downloads.glob("*.pdf")) if downloads.is_dir() else []
             print(f"File not found: {export_path}")
-            print("Run 'icontext connect linkedin' again once the file is downloaded.")
+            if pdf_candidates:
+                print()
+                print("PDFs in ~/Downloads:")
+                for p in pdf_candidates[-5:]:  # show up to 5 most recent
+                    print(f"  {p.name}")
+                print()
+                print("Re-run with the correct path:")
+                print(f"  icontext connect linkedin --pdf ~/Downloads/{pdf_candidates[-1].name}")
+            else:
+                print()
+                print("No PDFs found in ~/Downloads. Download your LinkedIn PDF first:")
+                print("  linkedin.com/in/your-username → More → Save to PDF")
+                print()
+                print("Then re-run: icontext connect linkedin")
             return
 
         if export_path.suffix.lower() != ".pdf":
