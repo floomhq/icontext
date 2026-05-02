@@ -28,13 +28,24 @@ else
     echo "icontext: CLI linked to $BIN_DIR/icontext"
 fi
 
-# PATH check
-if ! echo "$PATH" | grep -q "$BIN_DIR"; then
-    echo ""
-    echo "icontext: add to your shell profile if needed:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+# Auto-add ~/.local/bin to PATH in shell profile
+SHELL_RC=""
+if [ -f "$HOME/.zshrc" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+    SHELL_RC="$HOME/.bashrc"
+elif [ -f "$HOME/.bash_profile" ]; then
+    SHELL_RC="$HOME/.bash_profile"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+    if ! grep -q 'local/bin' "$SHELL_RC" 2>/dev/null; then
+        echo '' >> "$SHELL_RC"
+        echo '# icontext' >> "$SHELL_RC"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+        echo "icontext: added ~/.local/bin to PATH in $SHELL_RC"
+    fi
 fi
 
 echo ""
-echo "icontext: done. Run:"
-echo "  icontext init"
+echo "icontext: restart your terminal, then run: icontext init"

@@ -93,7 +93,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_connect(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     connector = _get_connector(args.source)
-    connector.connect(vault)
+    if args.source == "linkedin":
+        pdf_path = getattr(args, "pdf", None)
+        connector.connect(vault, pdf_path=pdf_path)
+    else:
+        connector.connect(vault)
     print(f"icontext: {args.source} connector configured.")
     return 0
 
@@ -125,6 +129,18 @@ def cmd_sync(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"  error: {exc}")
             exit_code = 1
+
+    if exit_code == 0 and sources_to_sync:
+        print()
+        print("─────────────────────────────────────────────")
+        print("icontext: profile ready")
+        print()
+        print("Claude Code now knows who you are. To verify, open a new Claude Code")
+        print('session and ask: "What do you know about me?"')
+        print()
+        print("Profile: ~/context/internal/profile/user.md")
+        print("Refresh: icontext sync")
+        print("─────────────────────────────────────────────")
 
     return exit_code
 
@@ -180,6 +196,22 @@ def cmd_init(args: argparse.Namespace) -> int:
     git_dir = vault / ".git"
     if not git_dir.exists():
         subprocess.run(["git", "init", str(vault)], check=True, capture_output=True)
+
+        # Check git identity; set a temporary default if not configured
+        result = subprocess.run(
+            ["git", "config", "user.email"],
+            capture_output=True, text=True, cwd=str(vault),
+        )
+        if not result.stdout.strip():
+            subprocess.run(
+                ["git", "config", "user.email", "icontext@local"],
+                cwd=str(vault), capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "icontext"],
+                cwd=str(vault), capture_output=True,
+            )
+
         subprocess.run(
             ["git", "-C", str(vault), "commit", "--allow-empty", "-m", "init: icontext vault"],
             check=True,
@@ -242,6 +274,17 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_share(args: argparse.Namespace) -> int:
+    vault = _resolve_vault(args.vault)
+    card_path = vault / "shareable" / "profile" / "context-card.md"
+    if not card_path.exists():
+        print("error: context card not found. Run: icontext sync")
+        return 1
+    print(card_path.read_text())
+    print(f"Share this file: {card_path}")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     _add_scripts_to_path()
@@ -288,6 +331,10 @@ def main() -> int:
     # connect
     p_connect = sub.add_parser("connect", help="interactively configure a data source connector")
     p_connect.add_argument("source", choices=["gmail", "linkedin"])
+    p_connect.add_argument(
+        "--pdf", metavar="PATH",
+        help="Path to LinkedIn profile PDF (save from linkedin.com/in/you → More → Save to PDF)",
+    )
     p_connect.set_defaults(func=cmd_connect)
 
     # sync
@@ -305,6 +352,10 @@ def main() -> int:
     # rebuild
     p_rebuild = sub.add_parser("rebuild", help="rebuild the SQLite FTS index")
     p_rebuild.set_defaults(func=cmd_rebuild)
+
+    # share
+    p_share = sub.add_parser("share", help="print the shareable context card to stdout")
+    p_share.set_defaults(func=cmd_share)
 
     # doctor
     p_doctor = sub.add_parser("doctor", help="run health checks on the vault")

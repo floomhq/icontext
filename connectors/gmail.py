@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import email.header
+import getpass
 import imaplib
 import re
 from collections import Counter
@@ -12,23 +13,27 @@ from .base import BaseConnector
 
 _SYNTHESIS_PROMPT = """You are building a structured user profile for Claude Code (an AI coding assistant) about the person whose email you are analyzing. This profile is loaded at every session so the AI knows who this person is, who matters to them, what they're working on, and how they operate — without needing to be told every session.
 
-Analyze this email metadata (subjects, senders, recipients, frequencies) and produce a structured Markdown profile:
+Analyze this email metadata (subjects, senders, recipients, frequencies) and produce a structured Markdown profile. Use the section markers exactly as shown so the output can be parsed.
 
 ## Identity Summary
 2-3 sentences: who is this person, what do they do, what are they currently focused on (infer from email patterns).
 
+<!-- SECTION: relationships -->
 ## Key Relationships
 Table: Name | Company/Domain | Role | Frequency | Warmth | Notes
 - Frequency: daily/weekly/monthly
 - Warmth: hot/warm/cold (infer from frequency + subject patterns)
 - Notes: 1-line context (investor, partner, user, collaborator, friend)
 List top 15 relationships. Exclude bots, notifications, automated emails.
+<!-- END SECTION -->
 
 ## Recurring Topics
 8-10 bullet points. Each: topic name — how it shows up in email patterns.
 
+<!-- SECTION: projects -->
 ## Active Projects (inferred)
 4-8 bullet points. Each: project name — what seems to be happening, who's involved.
+<!-- END SECTION -->
 
 ## Communication Patterns
 - Who they initiate contact with most
@@ -209,22 +214,37 @@ def _build_summary(all_messages: list[dict], own_addresses: set[str]) -> str:
     return "\n".join(lines)
 
 
+def _extract_section(text: str, section_name: str) -> str:
+    """Extract content between <!-- SECTION: name --> and <!-- END SECTION --> markers."""
+    import re as _re
+    pattern = rf"<!--\s*SECTION:\s*{_re.escape(section_name)}\s*-->(.*?)<!--\s*END SECTION\s*-->"
+    m = _re.search(pattern, text, _re.DOTALL | _re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
 class GmailConnector(BaseConnector):
     name = "gmail"
 
     def connect(self, vault: Path) -> None:
         print("icontext: Connect Gmail")
+        print("─────────────────────────────────────────────")
+        print("Gmail requires an App Password for third-party apps.")
+        print("This takes ~2 minutes to set up.")
         print()
-        print("You need a Gmail App Password. Here's how to create one:")
+        print("Step 1 — Enable 2-Step Verification (skip if already enabled):")
+        print("  → https://myaccount.google.com/signinoptions/two-step-verification")
         print()
-        print("  1. Go to: myaccount.google.com/security")
-        print("  2. Under \"How you sign in to Google\" → click \"2-Step Verification\"")
-        print("     (You must have 2-Step Verification enabled. If not, enable it first.)")
-        print("  3. Scroll to the bottom → click \"App passwords\"")
-        print("  4. Under \"App name\" type: icontext")
-        print("  5. Click \"Create\" → copy the 16-character password shown")
+        print("Step 2 — Create an App Password:")
+        print("  → https://myaccount.google.com/apppasswords")
+        print("  → Under \"App name\" type: icontext → click Create")
+        print("  → Copy the 16-character password shown")
         print()
-        input("Press Enter when ready, or Ctrl+C to cancel.")
+        print("Note: If you use a work/school Google account, your admin may have")
+        print("disabled App Passwords. In that case, use your personal Gmail instead.")
+        print()
+        input("Press Enter when you have your app password ready (Ctrl+C to cancel):")
         print()
 
         cfg = self.load_config(vault)
@@ -235,7 +255,7 @@ class GmailConnector(BaseConnector):
             if not addr:
                 print("Email address is required.")
                 continue
-            pwd = input("App password (16 chars, spaces OK): ").strip().replace(" ", "")
+            pwd = getpass.getpass("App password (16 chars): ").replace(" ", "")
             if not pwd:
                 print("App password is required.")
                 continue
@@ -326,18 +346,47 @@ class GmailConnector(BaseConnector):
         print("Synthesizing profile with Gemini...")
         gemini_output = self.gemini_synthesize(prompt)
 
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         account_list = ", ".join(a["address"] for a in accounts)
         profile = (
             f"---\n"
             f"source: Gmail (last {scan_days} days)\n"
             f"accounts: {account_list}\n"
-            f"generated: {datetime.now(UTC).strftime('%Y-%m-%d')}\n"
+            f"generated: {today}\n"
             f"refresh: icontext sync gmail\n"
             f"---\n\n"
             f"{gemini_output}\n"
         )
 
         self.write_profile(vault, "internal/profile/user.md", profile)
+
+        # Write modular section files
+        relationships_text = _extract_section(gemini_output, "relationships")
+        if relationships_text:
+            self.write_profile(
+                vault, "internal/profile/relationships.md",
+                f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{relationships_text}\n",
+            )
+
+        projects_text = _extract_section(gemini_output, "projects")
+        if projects_text:
+            self.write_profile(
+                vault, "internal/profile/projects.md",
+                f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{projects_text}\n",
+            )
+
+        # Write shareable context card
+        card_prompt = (
+            "From this user profile, write a short shareable context card (under 200 words) "
+            "that is safe to share with collaborators. Include: who they are, what they're "
+            "working on, their background. No email patterns, no private relationship details. "
+            "Just professional public-facing context.\n\nPROFILE:\n" + gemini_output
+        )
+        card_content = self.gemini_synthesize(card_prompt)
+        self.write_profile(
+            vault, "shareable/profile/context-card.md",
+            f"---\nshareable: true\ngenerated: {today}\nsource: icontext\n---\n\n{card_content}\n",
+        )
 
         # Update last_sync in config
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

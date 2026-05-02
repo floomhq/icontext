@@ -1,15 +1,13 @@
-"""LinkedIn data export connector for icontext."""
+"""LinkedIn PDF connector for icontext."""
 from __future__ import annotations
 
-import csv
-import io
-import zipfile
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .base import BaseConnector
 
-_SYNTHESIS_PROMPT = """Build a structured professional profile from this LinkedIn data export for use by an AI assistant (Claude Code). The AI will use this to understand the person's professional background, network, and positioning.
+_SYNTHESIS_PROMPT = """Build a structured professional profile from this LinkedIn PDF export for use by an AI assistant (Claude Code). The AI will use this to understand the person's professional background, skills, and positioning.
 
 ## Professional Summary
 Name, current role, headline. 2-3 sentences on career trajectory.
@@ -24,218 +22,105 @@ Table: School | Degree | Field | Years
 ## Key Skills
 Top 10-15 skills as a comma-separated list.
 
-## Network Highlights
-From connections data: top companies represented, notable connections (if any patterns stand out), approximate network size and composition.
+## Network / Recommendations
+Any notable recommendations or network signals visible in the PDF.
 
 ## Positioning
 How would this person introduce themselves professionally? 1 paragraph.
 
 ---
 DATA:
-{summary}"""
+{text}"""
 
 
-def _read_csv_from_zip(zf: zipfile.ZipFile, name: str) -> list[dict]:
-    """Read a CSV from the ZIP, return list of row dicts. Returns [] if not found."""
-    # Try exact name first, then case-insensitive search
-    names_in_zip = zf.namelist()
-    target = None
-    for n in names_in_zip:
-        if n.lower().endswith(name.lower()) or n.lower().endswith(name.lower().replace(".csv", "") + ".csv"):
-            target = n
-            break
-    if target is None:
-        return []
+def _read_pdf_text(pdf_path: Path) -> str:
+    """Extract text from a PDF. Tries pdftotext first, then pypdf."""
+    # Try pdftotext first (brew install poppler / apt install poppler-utils)
+    result = subprocess.run(
+        ["pdftotext", str(pdf_path), "-"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return result.stdout
+
+    # Fallback: try pypdf if available
     try:
-        raw = zf.read(target).decode("utf-8-sig", errors="replace")
-        reader = csv.DictReader(io.StringIO(raw))
-        return [row for row in reader]
-    except Exception:
-        return []
-
-
-def _is_linkedin_export(zf: zipfile.ZipFile) -> bool:
-    """Quick sanity check that this looks like a LinkedIn export."""
-    names = {n.lower() for n in zf.namelist()}
-    indicators = {"profile.csv", "connections.csv", "positions.csv", "education.csv", "skills.csv"}
-    return bool(names & indicators)
-
-
-def _build_summary(zf: zipfile.ZipFile) -> str:
-    lines: list[str] = []
-
-    # Profile
-    profile_rows = _read_csv_from_zip(zf, "Profile.csv")
-    if profile_rows:
-        p = profile_rows[0]
-        lines.append("== PROFILE ==")
-        for key in ("First Name", "Last Name", "Headline", "Summary", "Industry", "Current Position"):
-            val = p.get(key, "").strip()
-            if val:
-                lines.append(f"  {key}: {val}")
-        lines.append("")
-
-    # Positions
-    position_rows = _read_csv_from_zip(zf, "Positions.csv")
-    if position_rows:
-        lines.append("== WORK HISTORY (most recent first) ==")
-        for row in position_rows[:10]:
-            company = row.get("Company Name", row.get("Company", "")).strip()
-            title = row.get("Title", "").strip()
-            started = row.get("Started On", "").strip()
-            finished = row.get("Finished On", "").strip() or "present"
-            description = row.get("Description", "").strip()
-            if company or title:
-                entry = f"  {title} @ {company} ({started} - {finished})"
-                if description:
-                    entry += f"\n    {description[:200]}"
-                lines.append(entry)
-        lines.append("")
-
-    # Education
-    education_rows = _read_csv_from_zip(zf, "Education.csv")
-    if education_rows:
-        lines.append("== EDUCATION ==")
-        for row in education_rows:
-            school = row.get("School Name", row.get("School", "")).strip()
-            degree = row.get("Degree Name", row.get("Degree", "")).strip()
-            field = row.get("Field Of Study", "").strip()
-            started = row.get("Start Date", row.get("Started On", "")).strip()
-            finished = row.get("End Date", row.get("Finished On", "")).strip()
-            if school:
-                lines.append(f"  {school} | {degree} {field} ({started}-{finished})")
-        lines.append("")
-
-    # Skills
-    skill_rows = _read_csv_from_zip(zf, "Skills.csv")
-    if skill_rows:
-        skill_names = [r.get("Name", r.get("Skill", "")).strip() for r in skill_rows if r.get("Name", r.get("Skill", ""))]
-        if skill_names:
-            lines.append("== SKILLS ==")
-            lines.append("  " + ", ".join(skill_names[:30]))
-            lines.append("")
-
-    # Connections
-    connection_rows = _read_csv_from_zip(zf, "Connections.csv")
-    if connection_rows:
-        lines.append(f"== CONNECTIONS (total: {len(connection_rows)}) ==")
-        from collections import Counter
-        company_counter: Counter = Counter()
-        for row in connection_rows:
-            company = row.get("Company", "").strip()
-            if company:
-                company_counter[company] += 1
-        top_companies = company_counter.most_common(20)
-        lines.append("  Top companies in network:")
-        for company, count in top_companies:
-            lines.append(f"    {company}: {count} connections")
-        # Sample of connections
-        lines.append(f"  Sample connections (first 30):")
-        for row in connection_rows[:30]:
-            first = row.get("First Name", "").strip()
-            last = row.get("Last Name", "").strip()
-            title = row.get("Position", row.get("Title", "")).strip()
-            company = row.get("Company", "").strip()
-            if first or last:
-                lines.append(f"    {first} {last} — {title} @ {company}")
-        lines.append("")
-
-    # Recommendations received
-    rec_rows = _read_csv_from_zip(zf, "Recommendations_Received.csv")
-    if rec_rows:
-        lines.append(f"== RECOMMENDATIONS RECEIVED ({len(rec_rows)}) ==")
-        for row in rec_rows[:5]:
-            sender = row.get("Recommender", row.get("First Name", "")).strip()
-            text = row.get("Text", row.get("Recommendation Text", "")).strip()
-            if text:
-                lines.append(f"  From {sender}: {text[:200]}")
-        lines.append("")
-
-    return "\n".join(lines)
+        import pypdf
+        reader = pypdf.PdfReader(str(pdf_path))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except ImportError:
+        raise RuntimeError(
+            "Cannot read PDF. Install pdftotext: brew install poppler\n"
+            "Or: pip install pypdf"
+        )
 
 
 class LinkedInConnector(BaseConnector):
     name = "linkedin"
 
-    def connect(self, vault: Path) -> None:
-        print("LinkedIn data export connector setup")
-        print("Request your data export at: LinkedIn → Settings → Data privacy → Get a copy of your data")
-        print("Download the ZIP and provide the path below.")
-        print()
+    def connect(self, vault: Path, pdf_path: str | None = None) -> None:
+        if pdf_path is None:
+            print("icontext: Connect LinkedIn")
+            print("─────────────────────────────────────────────")
+            print("Save your LinkedIn profile as a PDF:")
+            print()
+            print("  1. Go to: linkedin.com/in/your-username")
+            print("  2. Click the \"More\" button below your name")
+            print("  3. Click \"Save to PDF\"")
+            print("  4. The PDF downloads to your Downloads folder")
+            print()
+            raw_path = input("Path to your LinkedIn PDF [~/Downloads/Profile.pdf]: ").strip()
+            if not raw_path:
+                raw_path = "~/Downloads/Profile.pdf"
+        else:
+            raw_path = pdf_path
+
+        export_path = Path(raw_path).expanduser().resolve()
 
         cfg = self.load_config(vault)
 
-        while True:
-            raw_path = input("Path to LinkedIn data export ZIP: ").strip()
-            if not raw_path:
-                print("Path is required.")
-                continue
+        if not export_path.exists():
+            print(f"File not found: {export_path}")
+            print("Run 'icontext connect linkedin' again once the file is downloaded.")
+            return
 
-            # Expand ~ and resolve
-            export_path = Path(raw_path).expanduser().resolve()
-            if not export_path.exists():
-                print(f"File not found: {export_path}")
-                retry = input("Try again? [y/N]: ").strip().lower()
-                if retry != "y":
-                    break
-                continue
+        if export_path.suffix.lower() != ".pdf":
+            print(f"Warning: file does not appear to be a PDF: {export_path.name}")
 
-            if not export_path.suffix.lower() == ".zip":
-                print("File does not appear to be a ZIP archive.")
-                retry = input("Try anyway? [y/N]: ").strip().lower()
-                if retry != "y":
-                    break
-
-            try:
-                with zipfile.ZipFile(export_path) as zf:
-                    if not _is_linkedin_export(zf):
-                        print("This ZIP does not look like a LinkedIn export (missing Profile.csv, Connections.csv, etc.).")
-                        print("Files found:", ", ".join(zf.namelist()[:10]))
-                        retry = input("Use it anyway? [y/N]: ").strip().lower()
-                        if retry != "y":
-                            break
-            except zipfile.BadZipFile:
-                print("File is not a valid ZIP archive.")
-                retry = input("Try again? [y/N]: ").strip().lower()
-                if retry != "y":
-                    break
-                continue
-
-            cfg["export_path"] = str(export_path)
-            self.save_config(vault, cfg)
-            print(f"Saved LinkedIn export path: {export_path}")
-            break
+        cfg["pdf_path"] = str(export_path)
+        self.save_config(vault, cfg)
+        print(f"icontext: LinkedIn PDF configured: {export_path}")
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
-        export_path_str = cfg.get("export_path")
-        if not export_path_str:
-            raise RuntimeError("No LinkedIn export configured. Run: icontext connect linkedin")
+        pdf_path_str = cfg.get("pdf_path")
+        if not pdf_path_str:
+            raise RuntimeError("No LinkedIn PDF configured. Run: icontext connect linkedin")
 
-        export_path = Path(export_path_str)
-        if not export_path.exists():
-            raise RuntimeError(f"LinkedIn export ZIP not found: {export_path}")
+        pdf_path = Path(pdf_path_str)
+        if not pdf_path.exists():
+            raise RuntimeError(f"LinkedIn PDF not found: {pdf_path}")
 
-        print(f"Reading LinkedIn export: {export_path}")
-        with zipfile.ZipFile(export_path) as zf:
-            summary = _build_summary(zf)
+        print(f"Reading LinkedIn PDF: {pdf_path}")
+        text = _read_pdf_text(pdf_path)
 
-        if not summary.strip():
-            raise RuntimeError("No data found in LinkedIn export ZIP.")
+        if not text.strip():
+            raise RuntimeError("No text extracted from LinkedIn PDF.")
 
         # Trim for Gemini
-        if len(summary) > 8000:
-            summary = summary[:8000] + "\n[truncated]"
+        if len(text) > 8000:
+            text = text[:8000] + "\n[truncated]"
 
-        prompt = _SYNTHESIS_PROMPT.format(summary=summary)
+        prompt = _SYNTHESIS_PROMPT.format(text=text)
         print("Synthesizing profile with Gemini...")
         gemini_output = self.gemini_synthesize(prompt)
 
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         profile = (
             f"---\n"
-            f"source: LinkedIn data export\n"
-            f"export_file: {export_path.name}\n"
-            f"generated: {datetime.now(UTC).strftime('%Y-%m-%d')}\n"
+            f"source: LinkedIn PDF\n"
+            f"pdf_file: {pdf_path.name}\n"
+            f"generated: {today}\n"
             f"refresh: icontext sync linkedin\n"
             f"---\n\n"
             f"{gemini_output}\n"
@@ -246,15 +131,15 @@ class LinkedInConnector(BaseConnector):
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.save_config(vault, cfg)
 
-        return f"LinkedIn sync complete from {export_path.name}"
+        return f"LinkedIn sync complete from {pdf_path.name}"
 
     def status(self, vault: Path) -> dict:
         cfg = self.load_config(vault)
-        export_path = cfg.get("export_path")
-        connected = export_path is not None
+        pdf_path = cfg.get("pdf_path")
+        connected = pdf_path is not None
         last_sync = cfg.get("last_sync")
-        if export_path:
-            summary = f"export: {Path(export_path).name}"
+        if pdf_path:
+            summary = f"pdf: {Path(pdf_path).name}"
         else:
             summary = "not configured"
         return {"connected": connected, "last_sync": last_sync, "summary": summary}

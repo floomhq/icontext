@@ -42,6 +42,15 @@ class BaseConnector(ABC):
 
     def gemini_synthesize(self, prompt: str) -> str:
         """Call ai-sidecar gemini for synthesis."""
+        # Check ai-sidecar is available
+        sidecar_check = subprocess.run(["which", "ai-sidecar"], capture_output=True)
+        if sidecar_check.returncode != 0:
+            raise RuntimeError(
+                "ai-sidecar not found. Install it first:\n"
+                "  See: https://github.com/floomhq/icontext#requirements"
+            )
+
+        print("  Synthesizing with Gemini (this takes ~10 seconds)...")
         result = subprocess.run(
             ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
             capture_output=True, text=True, timeout=120,

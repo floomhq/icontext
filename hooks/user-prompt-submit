@@ -22,9 +22,20 @@ profile_path = repo / "internal" / "profile" / "user.md"
 if profile_path.exists():
     mtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
     if datetime.now() - mtime > timedelta(days=7):
-        # Fire and forget — don't block the prompt
+        # Determine which sources are configured
+        import json as _json
+        connectors_cfg = repo / ".icontext" / "connectors.json"
+        configured_sources: list[str] = []
+        if connectors_cfg.exists():
+            try:
+                cfg_data = _json.loads(connectors_cfg.read_text())
+                configured_sources = list(cfg_data.keys())
+            except Exception:
+                pass
+
+        # Fire and forget — sync all configured sources (no explicit source = syncs all)
         subprocess.Popen(
-            ["icontext", "sync", "gmail", "--vault", str(repo)],
+            ["icontext", "sync", "--vault", str(repo)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
