@@ -51,6 +51,11 @@ class Doctor:
         self.check_mcp_stdio()
         self.check_agent_configs()
         self.check_native_clients()
+        self.check_connectors()
+        self.check_sources()
+        self.check_profile()
+        self.check_environment()
+        self.check_claude_integration()
         if self.deep:
             self.check_secret_scan()
             self.check_github_action()
@@ -327,6 +332,175 @@ class Doctor:
             self.warn("cursor:native", "cursor CLI present, but cursor-agent health command is unavailable")
         else:
             self.warn("cursor:native", "cursor-agent not present; config and MCP server validated directly")
+
+    # ------------------------------------------------------------------
+    # New install-state checks (connector layer, sources, profile, env,
+    # Claude Code integration)
+    # ------------------------------------------------------------------
+
+    def check_connectors(self) -> None:
+        """Check that connector files are present in the vault install."""
+        connectors_dir = self.repo / ".icontext" / "connectors"
+        if connectors_dir.is_dir():
+            self.pass_("connectors:dir", str(connectors_dir))
+        else:
+            self.fail("connectors:dir", f"{connectors_dir} missing")
+
+        for filename in ("base.py", "gmail.py", "linkedin.py"):
+            path = connectors_dir / filename
+            if path.exists():
+                self.pass_(f"connectors:{filename}", str(path))
+            else:
+                self.fail(f"connectors:{filename}", f"{path} missing")
+
+        cli_path = self.repo / ".icontext" / "cli.py"
+        if cli_path.exists():
+            self.pass_("connectors:cli.py", str(cli_path))
+        else:
+            self.fail("connectors:cli.py", f"{cli_path} missing")
+
+        symlink = Path("~/.local/bin/icontext").expanduser()
+        if symlink.exists() or symlink.is_symlink():
+            target = symlink.resolve() if symlink.is_symlink() else symlink
+            self.pass_("connectors:symlink", f"{symlink} -> {target}")
+        else:
+            self.warn("connectors:symlink", f"{symlink} not found (run install.sh to create)")
+
+    def check_sources(self) -> None:
+        """Check connector config, last_sync timestamps, and profile file presence."""
+        import importlib
+        from datetime import UTC, datetime, timedelta
+
+        cfg_path = self.repo / ".icontext" / "connectors.json"
+        if not cfg_path.exists():
+            self.warn("sources:config", "connectors.json not found — run: icontext connect gmail")
+            return
+
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.fail("sources:config", f"cannot parse connectors.json: {exc}")
+            return
+
+        self.pass_("sources:config", f"{len(cfg)} source(s) configured: {', '.join(cfg.keys())}")
+
+        stale_threshold = datetime.now(UTC) - timedelta(days=14)
+        for source_name, source_cfg in cfg.items():
+            last_sync_str = source_cfg.get("last_sync")
+            if not last_sync_str:
+                self.warn(f"sources:{source_name}:last_sync", "never synced — run: icontext sync")
+            else:
+                try:
+                    ts = datetime.fromisoformat(last_sync_str.replace("Z", "+00:00"))
+                    if ts < stale_threshold:
+                        days = (datetime.now(UTC) - ts).days
+                        self.warn(
+                            f"sources:{source_name}:last_sync",
+                            f"stale ({days}d ago) — run: icontext sync {source_name}",
+                        )
+                    else:
+                        self.pass_(f"sources:{source_name}:last_sync", last_sync_str)
+                except ValueError:
+                    self.warn(f"sources:{source_name}:last_sync", f"unparseable timestamp: {last_sync_str!r}")
+
+            profile_map = {
+                "gmail": self.repo / "internal" / "profile" / "user.md",
+                "linkedin": self.repo / "internal" / "profile" / "linkedin.md",
+            }
+            if source_name in profile_map:
+                profile_path = profile_map[source_name]
+                if profile_path.exists():
+                    self.pass_(f"sources:{source_name}:profile", str(profile_path))
+                else:
+                    self.warn(
+                        f"sources:{source_name}:profile",
+                        f"{profile_path} missing — run: icontext sync {source_name}",
+                    )
+
+    def check_profile(self) -> None:
+        """Check that profile and context card files exist."""
+        cfg_path = self.repo / ".icontext" / "connectors.json"
+        if not cfg_path.exists():
+            return
+
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+
+        if "gmail" in cfg:
+            user_md = self.repo / "internal" / "profile" / "user.md"
+            if user_md.exists():
+                self.pass_("profile:user.md", str(user_md))
+            else:
+                self.fail("profile:user.md", f"{user_md} missing — run: icontext sync gmail")
+
+        if "linkedin" in cfg:
+            linkedin_md = self.repo / "internal" / "profile" / "linkedin.md"
+            if linkedin_md.exists():
+                self.pass_("profile:linkedin.md", str(linkedin_md))
+            else:
+                self.fail("profile:linkedin.md", f"{linkedin_md} missing — run: icontext sync linkedin")
+
+        if cfg:
+            card_md = self.repo / "shareable" / "profile" / "context-card.md"
+            if card_md.exists():
+                self.pass_("profile:context-card.md", str(card_md))
+            else:
+                self.warn("profile:context-card.md", f"{card_md} missing — run: icontext sync")
+
+    def check_environment(self) -> None:
+        """Check API keys and Python dependencies."""
+        import importlib
+
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        google_key = os.environ.get("GOOGLE_API_KEY")
+        if gemini_key:
+            self.pass_("env:GEMINI_API_KEY", "set")
+        elif google_key:
+            self.pass_("env:GOOGLE_API_KEY", "set (GEMINI_API_KEY not set, using GOOGLE_API_KEY)")
+        else:
+            self.warn(
+                "env:api_key",
+                "neither GEMINI_API_KEY nor GOOGLE_API_KEY is set — "
+                "get a free key at https://aistudio.google.com/apikey",
+            )
+
+        try:
+            importlib.import_module("google.generativeai")
+            self.pass_("env:google-generativeai", "importable")
+        except ImportError:
+            self.fail("env:google-generativeai", "not installed — run: pip install google-generativeai")
+
+        try:
+            importlib.import_module("keyring")
+            self.pass_("env:keyring", "importable")
+        except ImportError:
+            self.warn("env:keyring", "not installed (credentials stored in plaintext) — pip install keyring")
+
+    def check_claude_integration(self) -> None:
+        """Check CLAUDE.md snippet and .mcp.json entry."""
+        claude_md = Path("~/.claude/CLAUDE.md").expanduser()
+        if not claude_md.exists():
+            self.warn("claude:CLAUDE.md", f"{claude_md} not found — run: icontext init")
+        elif "<!-- icontext -->" in claude_md.read_text(encoding="utf-8", errors="replace"):
+            self.pass_("claude:CLAUDE.md", "icontext snippet present")
+        else:
+            self.fail("claude:CLAUDE.md", "<!-- icontext --> snippet missing — run: icontext init")
+
+        mcp_json = Path("~/.claude/.mcp.json").expanduser()
+        if not mcp_json.exists():
+            self.warn("claude:mcp.json", f"{mcp_json} not found — run: icontext init")
+        else:
+            try:
+                data = json.loads(mcp_json.read_text(encoding="utf-8"))
+                servers = data.get("mcpServers", {})
+                if "icontext" in servers:
+                    self.pass_("claude:mcp.json", "icontext server entry present")
+                else:
+                    self.fail("claude:mcp.json", "icontext entry missing — run: icontext init")
+            except Exception as exc:
+                self.fail("claude:mcp.json", f"cannot parse {mcp_json}: {exc}")
 
     def check_secret_scan(self) -> None:
         result = self.command(["gitleaks", "dir", ".", "--config", ".gitleaks.toml", "--redact", "--no-banner"], timeout=60)
