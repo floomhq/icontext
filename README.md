@@ -24,19 +24,80 @@ That's it. Your AI now has persistent memory.
 
 ## How it works
 
-`icontext init` creates a vault at `~/context/` and installs three skills into Claude Code (and Cursor):
+iContext is intentionally minimal infrastructure. Three pieces:
 
-- **icontext-populate-profile** — your agent builds your profile from real data
-- **icontext-refresh-profile** — keeps the profile current as things change
-- **icontext-share-card** — generates a shareable one-pager
+### 1. The vault — a structured folder
 
-When you ask Claude to "populate my profile", it cascades through real sources to find the highest-quality data:
+Plain Markdown files in a tiered folder structure:
 
-1. **Gmail** (via Gmail MCP) — last 90 days of subjects + senders, no message bodies
-2. **LinkedIn** — browser scrape if available, otherwise read your LinkedIn PDF export
-3. **You describe yourself** — 4 questions, only if neither of the above works
+```
+~/context/
+  internal/profile/
+    user.md            # full synthesized profile (identity, relationships, topics, projects, communication, pending)
+    relationships.md   # key contacts table
+    projects.md        # active projects
+  shareable/profile/
+    context-card.md    # 200-word shareable summary, safe to send to collaborators
+  vault/               # git-crypt encrypted (legal docs, credentials, anything truly private)
+```
 
-The synthesis happens inside your Claude Code session. No external API calls. No data leaves your machine.
+Every file is plain Markdown. Open it in a text editor, in Obsidian, or pipe it to any tool. No proprietary format.
+
+### 2. Skills — instructions your AI agent follows
+
+`icontext init` installs three skills:
+
+- **icontext-populate-profile** — builds the profile from real data sources
+- **icontext-refresh-profile** — updates a stale profile
+- **icontext-share-card** — regenerates the shareable summary
+
+Skills are Markdown files installed at:
+- `~/.claude/skills/icontext-*/SKILL.md` (Claude Code)
+- `~/.cursor/rules/icontext-*.mdc` (Cursor)
+
+When you ask Claude Code "populate my icontext profile", it discovers the skill via its description, reads the instructions, and executes them.
+
+### 3. The synthesis pipeline
+
+The populate skill instructs the agent to follow a deterministic 4-stage flow:
+
+**Stage A — Source cascade (try in order):**
+1. Gmail MCP if available (read headers only — never message bodies)
+2. LinkedIn via browser automation, or a saved-to-PDF profile
+3. User describes themselves in chat (4 questions)
+
+**Stage B — Entity extraction:**
+The agent extracts structured data from the source: people (with evidence_messages count), projects (with evidence_subjects), topics. Filters out 1-shot SaaS welcome emails, notification senders, and self-addresses.
+
+**Stage C — Local validation:**
+- Drop entities below evidence threshold (≥2 messages for relationships, ≥2 subjects for projects)
+- Dedupe by email/handle
+- Sort by evidence weight, keep top 15-20
+
+**Stage D — Markdown rendering:**
+Write four files (`user.md`, `relationships.md`, `projects.md`, `context-card.md`) using a fixed template. Roles and context columns are required (cite subject evidence, never blank). No HTML comment delimiters or fragile parsing.
+
+This is the same architecture as the optional headless `icontext sync` (which uses Gemini 2.5 Flash Lite directly), just executed by the user's AI agent instead.
+
+### Cross-tool: every agent reads the same folder
+
+| Tool | How it reads | How it writes |
+|---|---|---|
+| Claude Code | CLAUDE.md snippet + skill files | Skill file invocation |
+| Cursor | `.cursor/rules/icontext-*.mdc` | Same skill instructions, Cursor-flavored |
+| Codex | reads vault directly (plain MD) | optional — `icontext sync` |
+| OpenCode | reads vault directly (plain MD) | optional — `icontext sync` |
+
+Any tool that can read Markdown can read the vault. Any tool that can follow Markdown instructions can populate it.
+
+### Privacy and security
+
+- **No external API calls by default.** Synthesis happens inside your AI agent's session. No iContext server, no telemetry, no profile leaves your machine.
+- **Credentials in OS keychain.** Gmail App Passwords (only used for the optional headless `sync`) are stored via `keyring` — macOS Keychain, Linux Secret Service. Never in plaintext JSON.
+- **Vault tier encryption.** `vault/` is git-crypt encrypted at rest. `internal/` and `shareable/` are plaintext (designed to be portable and readable in Obsidian).
+- **Pre-commit secret scanning.** `gitleaks` runs on every commit if you push the vault to git.
+
+Full threat model in [SECURITY.md](SECURITY.md).
 
 ## What you get
 
