@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""icontext CLI — manage your AI context vault."""
+"""icontext CLI — encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+__version__ = "0.2.0"
 
 
 # ---------------------------------------------------------------------------
@@ -40,11 +42,11 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r'\033\[[0-9;]*m', '', text)
 
 
-def _print(msg: str) -> None:
+def _print(msg: str = "", **kwargs) -> None:
     if not sys.stdout.isatty():
-        print(_strip_ansi(msg))
+        print(_strip_ansi(msg), **kwargs)
     else:
-        print(msg)
+        print(msg, **kwargs)
 
 
 def _header(cmd: str) -> None:
@@ -144,6 +146,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     _add_scripts_to_path()
 
+    if not vault.exists():
+        _print(_err(f"Vault not found: {vault}"))
+        _print(_info("Run 'icontext init' to create a vault, or check the path."))
+        return 1
+
     _header("status")
     _print("")
 
@@ -200,14 +207,21 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_connect(args: argparse.Namespace) -> int:
-    vault = _resolve_vault(args.vault)
-    connector = _get_connector(args.source)
-    if args.source == "linkedin":
-        pdf_path = getattr(args, "pdf", None)
-        connector.connect(vault, pdf_path=pdf_path)
-    else:
-        connector.connect(vault)
-    return 0
+    try:
+        vault = _resolve_vault(args.vault)
+        connector = _get_connector(args.source)
+        if args.source == "linkedin":
+            pdf_path = getattr(args, "pdf", None)
+            connector.connect(vault, pdf_path=pdf_path)
+        else:
+            connector.connect(vault)
+        return 0
+    except KeyboardInterrupt:
+        _print(_warn("cancelled"))
+        return 1
+    except Exception as e:
+        _print(_err(str(e)))
+        return 1
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -468,51 +482,178 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="icontext",
-        description="icontext CLI — manage your AI context vault",
+        description="Encrypted AI context vault for Claude Code, Codex, Cursor, OpenCode.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  icontext init\n"
+            "  icontext connect gmail\n"
+            "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf\n"
+            "  icontext sync\n"
+            "  icontext status\n"
+            "  icontext search 'fundraising'\n"
+            "\n"
+            "docs: https://icontext.dev\n"
+            "issues: https://github.com/floomhq/icontext/issues"
+        ),
     )
-    parser.add_argument("--vault", metavar="PATH", help="path to vault repo (overrides ICONTEXT_VAULT env)")
+    parser.add_argument(
+        "--vault", metavar="PATH",
+        help="path to vault directory (overrides ICONTEXT_VAULT env var; default: ~/context)",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"icontext {__version__}",
+    )
 
-    sub = parser.add_subparsers(dest="command", metavar="command")
+    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     # init
-    p_init = sub.add_parser("init", help="set up a new vault and configure Claude Code integration")
+    p_init = sub.add_parser(
+        "init",
+        help="set up a new vault and wire Claude Code integration",
+        description=(
+            "Create a new context vault at ~/context (or --vault PATH), initialise a git repo,\n"
+            "and insert an auto-sync snippet into ~/.claude/CLAUDE.md so Claude Code loads\n"
+            "your profile at the start of every session.\n"
+            "\n"
+            "Run once, then connect your data sources:\n"
+            "  icontext connect gmail\n"
+            "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_init.set_defaults(func=cmd_init)
 
     # status
-    p_status = sub.add_parser("status", help="show vault info and connector statuses")
+    p_status = sub.add_parser(
+        "status",
+        help="show vault and connector status",
+        description=(
+            "Print the vault path, connected sources, last sync time,\n"
+            "and whether a profile and context card have been generated."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_status.set_defaults(func=cmd_status)
 
     # connect
-    p_connect = sub.add_parser("connect", help="interactively configure a data source connector")
-    p_connect.add_argument("source", choices=["gmail", "linkedin"])
+    p_connect = sub.add_parser(
+        "connect",
+        help="connect a data source (gmail, linkedin)",
+        description=(
+            "Interactively configure a data source connector and save credentials.\n"
+            "\n"
+            "  gmail    — IMAP metadata scan (subjects, senders, dates — no message bodies).\n"
+            "             Requires a Gmail App Password (2FA must be enabled):\n"
+            "             https://myaccount.google.com/apppasswords\n"
+            "\n"
+            "  linkedin — Extract professional profile from a LinkedIn PDF export.\n"
+            "             Download: linkedin.com/in/you → More → Save to PDF\n"
+            "             Then: icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_connect.add_argument("source", choices=["gmail", "linkedin"], metavar="SOURCE",
+                           help="data source to connect: gmail or linkedin")
     p_connect.add_argument(
         "--pdf", metavar="PATH",
-        help="Path to LinkedIn profile PDF (save from linkedin.com/in/you → More → Save to PDF)",
+        help=(
+            "path to your LinkedIn profile PDF — skip the interactive prompt\n"
+            "  Download from: linkedin.com/in/you → More → Save to PDF"
+        ),
     )
     p_connect.set_defaults(func=cmd_connect)
 
     # sync
-    p_sync = sub.add_parser("sync", help="sync data source(s) and refresh profiles")
-    p_sync.add_argument("source", nargs="?", choices=["gmail", "linkedin"], help="sync only this source (default: all configured)")
+    p_sync = sub.add_parser(
+        "sync",
+        help="refresh profile from connected sources",
+        description=(
+            "Pull fresh data from connected sources and regenerate the AI profile.\n"
+            "\n"
+            "  icontext sync              # sync all configured sources\n"
+            "  icontext sync gmail        # sync Gmail only\n"
+            "  icontext sync linkedin     # sync LinkedIn only\n"
+            "\n"
+            "Writes the updated profile to internal/profile/user.md in your vault.\n"
+            "Claude Code reads this file automatically at each session start."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_sync.add_argument(
+        "source", nargs="?", choices=["gmail", "linkedin"], metavar="SOURCE",
+        help="sync only this source; omit to sync all configured sources",
+    )
     p_sync.set_defaults(func=cmd_sync)
 
     # search
-    p_search = sub.add_parser("search", help="search the vault index")
-    p_search.add_argument("query")
-    p_search.add_argument("--tier", choices=["shareable", "internal", "vault"], help="filter by tier")
-    p_search.add_argument("--limit", type=int, default=5, metavar="N")
+    p_search = sub.add_parser(
+        "search",
+        help="search the vault",
+        description=(
+            "Full-text search across the vault index.\n"
+            "\n"
+            "  icontext search 'fundraising'\n"
+            "  icontext search 'YC' --tier shareable\n"
+            "  icontext search 'investors' --limit 10\n"
+            "\n"
+            "Tiers: shareable (public-safe), internal (private), vault (all files)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_search.add_argument("query", help="search terms")
+    p_search.add_argument(
+        "--tier", choices=["shareable", "internal", "vault"],
+        help="restrict results to a specific tier",
+    )
+    p_search.add_argument("--limit", type=int, default=5, metavar="N",
+                          help="maximum number of results (default: 5)")
     p_search.set_defaults(func=cmd_search)
 
     # rebuild
-    p_rebuild = sub.add_parser("rebuild", help="rebuild the SQLite FTS index")
+    p_rebuild = sub.add_parser(
+        "rebuild",
+        help="rebuild the search index",
+        description=(
+            "Rebuild the SQLite full-text search index from scratch.\n"
+            "\n"
+            "Run this if search returns stale or missing results after editing\n"
+            "vault files manually."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_rebuild.set_defaults(func=cmd_rebuild)
 
     # share
-    p_share = sub.add_parser("share", help="print the shareable context card to stdout")
+    p_share = sub.add_parser(
+        "share",
+        help="print your shareable context card",
+        description=(
+            "Print the public-safe context card to stdout.\n"
+            "\n"
+            "The card is generated automatically during your first Gmail sync.\n"
+            "It contains only professional, public-facing context — no email\n"
+            "patterns or private relationship details.\n"
+            "\n"
+            "Uses: paste into a new AI session, email to a collaborator,\n"
+            "or drop into a shared vault."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_share.set_defaults(func=cmd_share)
 
     # doctor
-    p_doctor = sub.add_parser("doctor", help="run health checks on the vault")
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="verify install integrity",
+        description=(
+            "Run health checks: vault structure, connector config, CLAUDE.md snippet,\n"
+            "GEMINI_API_KEY, and Python dependency versions.\n"
+            "\n"
+            "Run after install or when Claude Code does not seem to load your profile."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args()

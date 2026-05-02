@@ -334,7 +334,10 @@ class GmailConnector(BaseConnector):
         cfg = self.load_config(vault)
         accounts = cfg.get("accounts", [])
         if not accounts:
-            raise RuntimeError("No Gmail accounts configured. Run: icontext connect gmail")
+            raise RuntimeError(
+                "No Gmail accounts configured.\n"
+                "  Run: icontext connect gmail"
+            )
 
         scan_days = int(cfg.get("scan_days", 90))
         since = datetime.now(UTC) - timedelta(days=scan_days)
@@ -406,7 +409,13 @@ class GmailConnector(BaseConnector):
                     pass
 
         if not all_messages:
-            raise RuntimeError("No messages retrieved from any account.")
+            raise RuntimeError(
+                "No messages retrieved from any Gmail account.\n"
+                "  Possible causes:\n"
+                "    - IMAP is disabled in Gmail settings → enable at gmail.com/settings → Forwarding and POP/IMAP\n"
+                "    - App password is stale — re-run: icontext connect gmail\n"
+                "    - No messages in the last 90 days (scan window)"
+            )
 
         summary = _build_summary(all_messages, own_addresses)
 
@@ -420,7 +429,10 @@ class GmailConnector(BaseConnector):
 
         if not gemini_output.strip():
             raise RuntimeError(
-                "Gemini returned an empty response. Try again with: icontext sync gmail"
+                "Gemini returned an empty response.\n"
+                "  This is usually a transient API issue — try again:\n"
+                "    icontext sync gmail\n"
+                "  If it keeps happening, check your key at: https://aistudio.google.com/apikey"
             )
 
         write_label = "writing profile..."

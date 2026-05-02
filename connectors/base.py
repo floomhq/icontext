@@ -41,11 +41,11 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r'\033\[[0-9;]*m', '', text)
 
 
-def _print(msg: str) -> None:
+def _print(msg: str = "", **kwargs) -> None:
     if not sys.stdout.isatty():
-        print(_strip_ansi(msg))
+        print(_strip_ansi(msg), **kwargs)
     else:
-        print(msg)
+        print(msg, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -86,24 +86,32 @@ class BaseConnector(ABC):
 
     def gemini_synthesize(self, prompt: str) -> str:
         """Synthesize with Gemini via google-generativeai SDK."""
+        import warnings
+        warnings.filterwarnings("ignore", category=FutureWarning, module=r"google\.generativeai.*")
+
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise RuntimeError(
-                "GEMINI_API_KEY not set.\n"
-                "  Get a free key at: https://aistudio.google.com/apikey\n"
-                "  Then run: export GEMINI_API_KEY=your_key_here\n"
-                "  Add to ~/.zshrc to make it permanent."
+                "GEMINI_API_KEY is not set — Gemini is required to generate your profile.\n"
+                "\n"
+                "  1. Get a free key (no credit card): https://aistudio.google.com/apikey\n"
+                "  2. Export it in your current shell:\n"
+                "       export GEMINI_API_KEY=your_key_here\n"
+                "  3. Make it permanent — add that line to ~/.zshrc or ~/.bashrc,\n"
+                "     then open a new terminal and re-run: icontext sync"
             )
         try:
             import google.generativeai as genai
         except ImportError:
             raise RuntimeError(
-                "google-generativeai not installed.\n"
-                "  Run: pip install google-generativeai"
+                "google-generativeai is not installed.\n"
+                "  Run: pip install google-generativeai\n"
+                "  Then re-run: icontext sync"
             )
         print("    synthesizing with Gemini...", end="", flush=True)
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model_name = os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
+        model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         print(" ✓")
         return response.text.strip()

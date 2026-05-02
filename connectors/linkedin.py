@@ -53,17 +53,19 @@ def _read_pdf_text(pdf_path: Path) -> str:
             return text
         raise RuntimeError(
             f"PDF appears to be empty or image-only: {pdf_path.name}\n"
-            "Make sure you saved it via LinkedIn → More → Save to PDF (not a browser print)."
+            "  LinkedIn PDFs saved via browser Print→Save are image-only and cannot be parsed.\n"
+            "  Use the official export instead: linkedin.com/in/you → More → Save to PDF\n"
+            "  Then re-run: icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
         )
     except ImportError:
         raise RuntimeError(
-            "Cannot read PDF — no PDF reader found.\n"
+            f"Cannot read {pdf_path.name} — no PDF reader available.\n"
             "\n"
-            "Fix (pick one):\n"
-            "  Option A: brew install poppler   (installs pdftotext)\n"
-            "  Option B: pip install pypdf\n"
+            "  Install one (pick either):\n"
+            "    brew install poppler        # installs pdftotext (recommended)\n"
+            "    pip install pypdf           # pure-Python fallback\n"
             "\n"
-            "After installing, re-run: icontext connect linkedin"
+            "  Then re-run: icontext connect linkedin --pdf {pdf_path}"
         )
 
 
@@ -120,24 +122,24 @@ class LinkedInConnector(BaseConnector):
 
         _print(_ok(f"PDF found: {export_path.name}"))
 
-        cfg["pdf_path"] = str(export_path)
-        self.save_config(vault, cfg)
-
-        # Test PDF is readable now, not at sync time
+        # Test PDF is readable BEFORE saving config — only persist if the PDF actually works
         _print(_info("testing PDF..."), end="", flush=True)
         try:
             text = _read_pdf_text(export_path)
             if len(text.strip()) < 100:
-                raise RuntimeError("PDF appears empty or unreadable")
+                raise RuntimeError(
+                    f"{export_path.name} is too short to be a valid LinkedIn export "
+                    f"({len(text.strip())} chars — expected at least 100).\n"
+                    "  Make sure you used LinkedIn → More → Save to PDF, not a browser print.\n"
+                    f"  Then re-run: icontext connect linkedin --pdf {export_path}"
+                )
             _print(f" {C.GREEN}✓{C.RESET} ({len(text)} chars)")
-        except RuntimeError as e:
+        except RuntimeError:
             _print(f" {C.RED}✗{C.RESET}")
-            raise RuntimeError(
-                f"Cannot read PDF: {e}\n"
-                "  Install pdftotext: brew install poppler\n"
-                "  Or: pip install pypdf\n"
-                "  Then re-run: icontext connect linkedin --pdf PATH"
-            )
+            raise
+
+        cfg["pdf_path"] = str(export_path)
+        self.save_config(vault, cfg)
 
         _print(_ok("LinkedIn connected"))
         _print(_hr())
@@ -151,7 +153,10 @@ class LinkedInConnector(BaseConnector):
 
         pdf_path = Path(pdf_path_str)
         if not pdf_path.exists():
-            raise RuntimeError(f"LinkedIn PDF not found: {pdf_path}")
+            raise RuntimeError(
+                f"LinkedIn PDF no longer exists at: {pdf_path}\n"
+                "  Re-run: icontext connect linkedin --pdf /path/to/Profile.pdf"
+            )
 
         label_width = 36
 
@@ -168,7 +173,12 @@ class LinkedInConnector(BaseConnector):
             _print(_ok("PDF read"))
 
         if not text.strip():
-            raise RuntimeError("No text extracted from LinkedIn PDF.")
+            raise RuntimeError(
+                f"No text could be extracted from {pdf_path.name}.\n"
+                "  The file may be image-only (browser-printed PDF).\n"
+                "  Use the official export: linkedin.com/in/you → More → Save to PDF\n"
+                f"  Then re-run: icontext connect linkedin --pdf {pdf_path}"
+            )
 
         # Trim for Gemini
         if len(text) > 8000:
