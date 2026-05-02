@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -84,29 +85,28 @@ class BaseConnector(ABC):
             pass  # nothing to commit or git not configured
 
     def gemini_synthesize(self, prompt: str) -> str:
-        """Call ai-sidecar gemini for synthesis."""
-        # Check ai-sidecar is available
-        sidecar_check = subprocess.run(["which", "ai-sidecar"], capture_output=True)
-        if sidecar_check.returncode != 0:
+        """Synthesize with Gemini via google-generativeai SDK."""
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
             raise RuntimeError(
-                "ai-sidecar not found. Install it first:\n"
-                "  See: https://github.com/floomhq/icontext#requirements"
+                "GEMINI_API_KEY not set.\n"
+                "  Get a free key at: https://aistudio.google.com/apikey\n"
+                "  Then run: export GEMINI_API_KEY=your_key_here\n"
+                "  Add to ~/.zshrc to make it permanent."
             )
-
-        _print(_info("synthesizing with Gemini...") + "          ")
-        if sys.stdout.isatty():
-            print(f"\033[A\r  {_c(C.CYAN, '→')} synthesizing with Gemini...", end="", flush=True)
-        result = subprocess.run(
-            ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode != 0:
-            if sys.stdout.isatty():
-                print()
-            raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
-        if sys.stdout.isatty():
-            print(f" {_c(C.GREEN, '✓')}")
-        return result.stdout.strip()
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise RuntimeError(
+                "google-generativeai not installed.\n"
+                "  Run: pip install google-generativeai"
+            )
+        print("    synthesizing with Gemini...", end="", flush=True)
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        print(" ✓")
+        return response.text.strip()
 
     @abstractmethod
     def connect(self, vault: Path) -> None:

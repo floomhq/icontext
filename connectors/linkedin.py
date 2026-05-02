@@ -122,6 +122,23 @@ class LinkedInConnector(BaseConnector):
 
         cfg["pdf_path"] = str(export_path)
         self.save_config(vault, cfg)
+
+        # Test PDF is readable now, not at sync time
+        _print(_info("testing PDF..."), end="", flush=True)
+        try:
+            text = _read_pdf_text(export_path)
+            if len(text.strip()) < 100:
+                raise RuntimeError("PDF appears empty or unreadable")
+            _print(f" {C.GREEN}✓{C.RESET} ({len(text)} chars)")
+        except RuntimeError as e:
+            _print(f" {C.RED}✗{C.RESET}")
+            raise RuntimeError(
+                f"Cannot read PDF: {e}\n"
+                "  Install pdftotext: brew install poppler\n"
+                "  Or: pip install pypdf\n"
+                "  Then re-run: icontext connect linkedin --pdf PATH"
+            )
+
         _print(_ok("LinkedIn connected"))
         _print(_hr())
         _print(_info("Run: icontext sync"))
@@ -160,33 +177,7 @@ class LinkedInConnector(BaseConnector):
         prompt = _SYNTHESIS_PROMPT.format(text=text)
 
         # Step 2: synthesize
-        synth_label = "synthesizing with Gemini..."
-        if sys.stdout.isatty():
-            print(f"  {_c(C.CYAN, '→')} {synth_label:<{label_width}}", end="", flush=True)
-        else:
-            _print(_info(synth_label))
-
-        sidecar_check = subprocess.run(["which", "ai-sidecar"], capture_output=True)
-        if sidecar_check.returncode != 0:
-            if sys.stdout.isatty():
-                print(f" {_c(C.RED, '✗')}")
-            raise RuntimeError(
-                "ai-sidecar not found. Install it first:\n"
-                "  See: https://github.com/floomhq/icontext#requirements"
-            )
-        result = subprocess.run(
-            ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode != 0:
-            if sys.stdout.isatty():
-                print(f" {_c(C.RED, '✗')}")
-            raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
-        gemini_output = result.stdout.strip()
-        if sys.stdout.isatty():
-            print(f" {_c(C.GREEN, '✓')}")
-        else:
-            _print(_ok("synthesized"))
+        gemini_output = self.gemini_synthesize(prompt)
 
         # Step 3: write profile
         write_label = "writing profile..."

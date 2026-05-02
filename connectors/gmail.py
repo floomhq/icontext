@@ -12,6 +12,22 @@ from pathlib import Path
 
 from .base import BaseConnector, C, _c, _ok, _info, _warn, _err, _hr, _print
 
+
+def _store_credential(service: str, account: str, password: str) -> None:
+    try:
+        import keyring
+        keyring.set_password(service, account, password)
+    except Exception:
+        pass  # fall through to plaintext
+
+
+def _get_credential(service: str, account: str) -> str | None:
+    try:
+        import keyring
+        return keyring.get_password(service, account)
+    except Exception:
+        return None
+
 _SYNTHESIS_PROMPT = """You are building a structured user profile for Claude Code (an AI coding assistant) about the person whose email you are analyzing. This profile is loaded at every session so the AI knows who this person is, who matters to them, what they're working on, and how they operate — without needing to be told every session.
 
 Analyze this email metadata (subjects, senders, recipients, frequencies) and produce a structured Markdown profile. Use the section markers exactly as shown so the output can be parsed.
@@ -246,6 +262,9 @@ class GmailConnector(BaseConnector):
         _print(_warn("Work/school accounts may have App Passwords disabled."))
         _print(f"    Use a personal Gmail if so.")
         _print("")
+        _print(f"  Privacy: we read only email metadata — sender, subject, date.")
+        _print(f"  Message content and attachments are never accessed or stored.")
+        _print("")
         input(f"  Press Enter when ready...")
         _print("")
 
@@ -292,7 +311,10 @@ class GmailConnector(BaseConnector):
                     break
                 continue
 
-            accounts.append({"address": addr, "app_password": pwd, "label": label})
+            # Store password in keychain, not in JSON
+            _store_credential("icontext-gmail", addr, pwd)
+            # Save account without password in config
+            accounts.append({"address": addr, "label": label})
 
             another = input(f"  {_c(C.CYAN, '→')} add another account? [y/N]: ").strip().lower()
             if another != "y":
@@ -305,10 +327,8 @@ class GmailConnector(BaseConnector):
         cfg["accounts"] = accounts
         cfg.setdefault("scan_days", 90)
         self.save_config(vault, cfg)
-        cfg_path = vault / ".icontext" / "connectors.json"
-        _print(_ok(f"saved {len(accounts)} account(s)"))
-        _print(_warn(f"credentials stored in {cfg_path}"))
-        _print(f"    Keep this vault out of public git repositories.")
+        _print(_ok(f"saved {len(accounts)} account(s) (passwords stored in OS keychain)"))
+        _print(_info(f"account config (no passwords) saved to vault"))
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
@@ -325,7 +345,13 @@ class GmailConnector(BaseConnector):
 
         for acct in accounts:
             addr = acct["address"]
-            pwd = acct["app_password"]
+            pwd = _get_credential("icontext-gmail", addr)
+            if not pwd:
+                # Fallback: check old plaintext format for migration
+                pwd = acct.get("app_password", "")
+            if not pwd:
+                _print(_warn(f"no password for {addr} — run: icontext connect gmail"))
+                continue
             own_addresses.add(addr.lower())
 
             label_width = 36
@@ -390,32 +416,7 @@ class GmailConnector(BaseConnector):
 
         prompt = _SYNTHESIS_PROMPT.format(summary=summary)
 
-        synth_label = "synthesizing with Gemini..."
-        if sys.stdout.isatty():
-            print(f"  {_c(C.CYAN, '→')} {synth_label:<{label_width}}", end="", flush=True)
-        else:
-            _print(_info(synth_label))
-
-        import subprocess as _sp
-        sidecar_check = _sp.run(["which", "ai-sidecar"], capture_output=True)
-        if sidecar_check.returncode != 0:
-            if sys.stdout.isatty():
-                print(f" {_c(C.RED, '✗')}")
-            raise RuntimeError(
-                "ai-sidecar not found. Install it first:\n"
-                "  See: https://github.com/floomhq/icontext#requirements"
-            )
-        result = _sp.run(
-            ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
-            capture_output=True, text=True, timeout=120,
-        )
-        if result.returncode != 0:
-            if sys.stdout.isatty():
-                print(f" {_c(C.RED, '✗')}")
-            raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
-        gemini_output = result.stdout.strip()
-        if sys.stdout.isatty():
-            print(f" {_c(C.GREEN, '✓')}")
+        gemini_output = self.gemini_synthesize(prompt)
 
         if not gemini_output.strip():
             raise RuntimeError(
@@ -476,11 +477,7 @@ class GmailConnector(BaseConnector):
             "Just professional public-facing context.\n\nPROFILE:\n" + gemini_output
         )
         try:
-            card_result = _sp.run(
-                ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", card_prompt],
-                capture_output=True, text=True, timeout=120,
-            )
-            card_content = card_result.stdout.strip() if card_result.returncode == 0 else ""
+            card_content = self.gemini_synthesize(card_prompt)
             if card_content.strip():
                 self.write_profile(
                     vault, "shareable/profile/context-card.md",

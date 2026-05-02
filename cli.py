@@ -260,6 +260,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         _print("  Open Claude Code and ask:")
         _print(f'    {_c(C.DIM, chr(34) + "What do you know about me?" + chr(34))}')
         _print(_hr())
+        _print(_info("run `icontext doctor` to verify Claude Code has your profile"))
         _print("")
 
     return exit_code
@@ -358,10 +359,16 @@ def cmd_init(args: argparse.Namespace) -> int:
             )
         install_sh = icontext_dir / "install.sh"
         if install_sh.exists():
-            _sp.run(
+            result = _sp.run(
                 ["bash", str(install_sh), "--vault", str(vault), "--mode", "agents", "--yes"],
-                check=False,
+                capture_output=True, text=True
             )
+            if result.returncode != 0:
+                _print(_warn(f"installer warning (exit {result.returncode})"))
+                if result.stderr:
+                    for line in result.stderr.strip().splitlines()[-5:]:
+                        _print(f"    {line}")
+                _print(_info("continuing — run `icontext doctor` to verify"))
         _print(_ok("icontext installed"))
 
     # 4. Insert CLAUDE.md snippet

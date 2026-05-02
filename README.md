@@ -2,38 +2,26 @@
 
 [![CI](https://github.com/floomhq/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/floomhq/icontext/actions/workflows/ci.yml)
 
-**Encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode.**
-
-Turn a private context repo into agent-ready infrastructure: encrypted Git
-tiers, gitleaks, deterministic sensitivity checks, local SQLite retrieval, MCP
-tools, Claude prompt context, multi-agent config, and one doctor command that
-proves the whole system works.
-
-`icontext` is for people who want AI agents to use their real operating context
-without turning private notes, legal files, tax records, credentials, emails,
-PDFs, and strategy docs into prompt soup.
-
-## In Plain English
-
-Your AI tools are much more useful when they remember your real work.
-
-But your real work includes private documents, legal notes, admin files,
-strategy, credentials, and messy project history. That cannot just be pasted
-into prompts.
-
-`icontext` gives that context a safe home. It keeps sensitive files encrypted,
-checks for leaks before they reach GitHub, makes the useful parts searchable,
-and lets your coding agents ask for context when they need it.
-
-The goal is simple: **your AI assistants can help with the work, without your
-private operating context becoming a liability.**
-
-## Demo
-
-<!-- demo gif will go here once recorded — see demo/README-demo.md -->
-
 **Before icontext:** Claude asks "What are you working on?" every session.  
 **After icontext:** Claude already knows your projects, relationships, and context.
+
+icontext gives Claude Code, Codex, Cursor, and OpenCode persistent memory — built from your Gmail and LinkedIn, stored encrypted on your machine.
+
+No cloud. No API key sent anywhere. Your data stays local.
+
+## Quickstart
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/floomhq/icontext/main/get.sh | bash
+# restart your terminal, then:
+icontext init
+icontext connect gmail
+icontext connect linkedin --pdf ~/Downloads/Profile.pdf
+icontext sync
+# open Claude Code → ask "what do you know about me?"
+```
+
+You need a free Gemini API key for synthesis: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ## What You Get
 
@@ -99,18 +87,6 @@ A vault split into three top-level folders:
 | `vault/` | Must never leak | git-crypt encrypted |
 
 The classifier enforces content matches folder. Secrets are never allowed anywhere without git-crypt.
-
-## Quickstart
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/floomhq/icontext/main/get.sh | bash
-# restart your terminal, then:
-icontext init
-icontext connect gmail
-icontext connect linkedin --pdf ~/Downloads/Profile.pdf
-icontext sync
-# open Claude Code → ask "what do you know about me?"
-```
 
 ## Install
 
@@ -188,9 +164,7 @@ tools you already trust with this repo.
 python3 .icontext/scripts/doctor.py --repo . --icontext-root ~/icontext --deep
 ```
 
-The doctor command is the quality gate for Federico's setup. It validates the
-current install without starting background services or adding hosted
-dependencies.
+The doctor command validates the current install without starting background services or adding hosted dependencies.
 
 Example production result:
 
@@ -226,38 +200,10 @@ manifest removals before deleting files.
 - `git-lfs` (`brew install git-lfs`)
 - `git`
 - Python 3.11+
-- No API key is required for the deterministic tier classifier.
+- A free Gemini API key: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
-## Launch Status
-
-`icontext` is production-proven in Federico's private `context` vault:
-
-- `doctor.py`: 27 pass, 0 warnings, 0 failures
-- retrieval eval: 3 pass, 0 failures
-- all tracked `vault/**` files encrypted in `HEAD`
-- current-tree and full-history gitleaks scans clean after history rewrite
-- Claude Code, Codex, Cursor, and OpenCode wiring verified
-
-## What icontext Is Not
-
-- not a hosted vector database
-- not a replacement for Obsidian, Notion, or a full PKM system
-- not an agent framework
-- not a way to make leaked git-crypt keys safe
-- not magic semantic search; current retrieval is SQLite FTS by design
-
-## Keywords
-
-AI context vault, encrypted context repository, Claude Code MCP, Codex MCP,
-Cursor MCP, OpenCode MCP, git-crypt vault, gitleaks pre-commit, context
-engineering, personal knowledge management, local-first AI agents, SQLite FTS
-retrieval.
+## Status: Production-ready. Run `icontext doctor` to verify your install.
 
 ## Built with icontext
 
 *Share your setup: tag #icontext on Twitter/X*
-
-## Status
-
-Built for Federico's `federicodeponte/context` and kept generic enough to
-install into another private Git knowledge vault.
