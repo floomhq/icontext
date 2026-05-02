@@ -339,8 +339,13 @@ class Doctor:
     # ------------------------------------------------------------------
 
     def check_connectors(self) -> None:
-        """Check that connector files are present in the vault install."""
-        connectors_dir = self.repo / ".icontext" / "connectors"
+        """Check that connector files are present in the iContext install root.
+
+        In the skills-first architecture, connectors live in ~/icontext/connectors/
+        (the install root), not inside the vault. The vault gets skills + folder
+        structure; sync (which uses connectors) is opt-in and runs from the install.
+        """
+        connectors_dir = self.icontext_root / "connectors"
         if connectors_dir.is_dir():
             self.pass_("connectors:dir", str(connectors_dir))
         else:
@@ -353,7 +358,7 @@ class Doctor:
             else:
                 self.fail(f"connectors:{filename}", f"{path} missing")
 
-        cli_path = self.repo / ".icontext" / "cli.py"
+        cli_path = self.icontext_root / "cli.py"
         if cli_path.exists():
             self.pass_("connectors:cli.py", str(cli_path))
         else:
