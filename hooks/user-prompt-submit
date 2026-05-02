@@ -1,10 +1,45 @@
-#!/usr/bin/env bash
-# Claude UserPromptSubmit hook: inject relevant icontext search hits.
+#!/usr/bin/env python3
+# Claude UserPromptSubmit hook: inject relevant icontext search hits,
+# and trigger a background sync if the profile is stale (>7 days old).
 
-set -euo pipefail
+from __future__ import annotations
 
-ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
-ICONTEXT_VAULT="${ICONTEXT_VAULT:-$HOME/context}"
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
 
-PYTHONDONTWRITEBYTECODE=1 ICONTEXT_VAULT="$ICONTEXT_VAULT" \
-    python3 "$ICONTEXT_ROOT/scripts/prompt_context.py"
+ICONTEXT_ROOT = Path(os.environ.get("ICONTEXT_ROOT", Path.home() / "icontext"))
+ICONTEXT_VAULT = Path(os.environ.get("ICONTEXT_VAULT", Path.home() / "context"))
+
+repo = ICONTEXT_VAULT
+
+# ---------------------------------------------------------------------------
+# Staleness check: if profile is >7 days old, trigger background sync
+# ---------------------------------------------------------------------------
+profile_path = repo / "internal" / "profile" / "user.md"
+if profile_path.exists():
+    mtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
+    if datetime.now() - mtime > timedelta(days=7):
+        # Fire and forget — don't block the prompt
+        subprocess.Popen(
+            ["icontext", "sync", "gmail", "--vault", str(repo)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+# ---------------------------------------------------------------------------
+# Context injection: delegate to prompt_context.py
+# ---------------------------------------------------------------------------
+prompt_context = ICONTEXT_ROOT / "scripts" / "prompt_context.py"
+if prompt_context.exists():
+    os.environ["ICONTEXT_VAULT"] = str(ICONTEXT_VAULT)
+    result = subprocess.run(
+        [sys.executable, str(prompt_context)],
+        env=os.environ,
+    )
+    sys.exit(result.returncode)
+# If prompt_context.py is not installed yet, exit cleanly (don't block Claude)
+sys.exit(0)

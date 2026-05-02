@@ -164,6 +164,84 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    import subprocess
+    from pathlib import Path
+
+    vault_path = args.vault or str(Path("~/context").expanduser())
+    vault = Path(vault_path).expanduser().resolve()
+
+    # 1. Create vault directory structure
+    for subdir in ("shareable", "internal/profile", "vault"):
+        (vault / subdir).mkdir(parents=True, exist_ok=True)
+    print(f"icontext: vault directory ready at {vault}")
+
+    # 2. Git init if needed
+    git_dir = vault / ".git"
+    if not git_dir.exists():
+        subprocess.run(["git", "init", str(vault)], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(vault), "commit", "--allow-empty", "-m", "init: icontext vault"],
+            check=True,
+            capture_output=True,
+        )
+        print("icontext: git repo initialised")
+
+    # 3. Install icontext if not already installed
+    installed_marker = vault / ".icontext-installed"
+    icontext_dir = Path("~/icontext").expanduser()
+    if installed_marker.exists():
+        print("icontext: already installed, skipping clone/install")
+    else:
+        if not (icontext_dir / ".git").exists():
+            print("icontext: cloning floomhq/icontext to ~/icontext...")
+            subprocess.run(
+                ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
+                check=False,
+            )
+        install_sh = icontext_dir / "install.sh"
+        if install_sh.exists():
+            print("icontext: running installer...")
+            subprocess.run(
+                ["bash", str(install_sh), "--vault", str(vault), "--mode", "agents", "--yes"],
+                check=False,
+            )
+
+    # 4. Insert CLAUDE.md snippet
+    claude_md = Path("~/.claude/CLAUDE.md").expanduser()
+    snippet = (
+        "\n<!-- icontext -->\n"
+        "## AI Context (icontext)\n"
+        "Context vault is at ~/context. Profile lives at internal/profile/user.md.\n"
+        "At the start of each session: if internal/profile/user.md was last modified more than 7 days ago, "
+        "run `icontext sync` in the background.\n"
+        "MCP tools available: search_vault, get_profile, sync_source, list_sources.\n"
+        "<!-- /icontext -->\n"
+    )
+    if claude_md.exists():
+        existing = claude_md.read_text()
+    else:
+        claude_md.parent.mkdir(parents=True, exist_ok=True)
+        existing = ""
+
+    if "<!-- icontext -->" in existing:
+        print("icontext: CLAUDE.md snippet already present, skipping")
+    else:
+        claude_md.write_text(existing + snippet)
+        print("icontext: CLAUDE.md updated — Claude Code will auto-sync your profile")
+
+    # 5. Success message
+    print()
+    print(f"icontext: vault ready at {vault}")
+    print("icontext: CLAUDE.md updated — Claude Code will auto-sync your profile")
+    print()
+    print("Next:")
+    print("  icontext connect gmail      # connect your Gmail")
+    print("  icontext connect linkedin   # add your LinkedIn profile")
+    print("  icontext sync               # build your profile now")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     _add_scripts_to_path()
@@ -198,6 +276,10 @@ def main() -> int:
     parser.add_argument("--vault", metavar="PATH", help="path to vault repo (overrides ICONTEXT_VAULT env)")
 
     sub = parser.add_subparsers(dest="command", metavar="command")
+
+    # init
+    p_init = sub.add_parser("init", help="set up a new vault and configure Claude Code integration")
+    p_init.set_defaults(func=cmd_init)
 
     # status
     p_status = sub.add_parser("status", help="show vault info and connector statuses")

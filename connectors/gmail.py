@@ -213,32 +213,40 @@ class GmailConnector(BaseConnector):
     name = "gmail"
 
     def connect(self, vault: Path) -> None:
-        print("Gmail IMAP connector setup")
-        print("You need an App Password (not your main password).")
-        print("Get one at: Google Account → Security → 2-Step Verification → App passwords")
+        print("icontext: Connect Gmail")
+        print()
+        print("You need a Gmail App Password. Here's how to create one:")
+        print()
+        print("  1. Go to: myaccount.google.com/security")
+        print("  2. Under \"How you sign in to Google\" → click \"2-Step Verification\"")
+        print("     (You must have 2-Step Verification enabled. If not, enable it first.)")
+        print("  3. Scroll to the bottom → click \"App passwords\"")
+        print("  4. Under \"App name\" type: icontext")
+        print("  5. Click \"Create\" → copy the 16-character password shown")
+        print()
+        input("Press Enter when ready, or Ctrl+C to cancel.")
         print()
 
         cfg = self.load_config(vault)
         accounts: list[dict] = cfg.get("accounts", [])
 
         while True:
-            addr = input("Email address: ").strip()
+            addr = input("Gmail address: ").strip()
             if not addr:
                 print("Email address is required.")
                 continue
-            pwd = input("App password (16 chars, spaces ignored): ").strip().replace(" ", "")
+            pwd = input("App password (16 chars, spaces OK): ").strip().replace(" ", "")
             if not pwd:
                 print("App password is required.")
                 continue
-            label = input("Label for this account (e.g. PRIMARY, WORK) [PRIMARY]: ").strip() or "PRIMARY"
+            label = input("Label (e.g. PRIMARY, WORK — or just press Enter): ").strip() or "PRIMARY"
 
             # Test the connection
-            print(f"Testing connection to {addr}...")
             try:
                 conn = imaplib.IMAP4_SSL("imap.gmail.com")
                 conn.login(addr, pwd)
                 conn.logout()
-                print(f"Connected to {addr}")
+                print(f"icontext: gmail connected ({addr})")
             except Exception as exc:
                 print(f"Connection failed: {exc}")
                 retry = input("Try again? [y/N]: ").strip().lower()
