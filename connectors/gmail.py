@@ -5,11 +5,12 @@ import email.header
 import getpass
 import imaplib
 import re
+import sys
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .base import BaseConnector
+from .base import BaseConnector, C, _c, _ok, _info, _warn, _err, _hr, _print
 
 _SYNTHESIS_PROMPT = """You are building a structured user profile for Claude Code (an AI coding assistant) about the person whose email you are analyzing. This profile is loaded at every session so the AI knows who this person is, who matters to them, what they're working on, and how they operate — without needing to be told every session.
 
@@ -228,87 +229,86 @@ class GmailConnector(BaseConnector):
     name = "gmail"
 
     def connect(self, vault: Path) -> None:
-        print("icontext: Connect Gmail")
-        print("─────────────────────────────────────────────")
-        print("Gmail requires an App Password for third-party apps.")
-        print("This takes ~2 minutes to set up.")
-        print()
-        print("Step 1 — Enable 2-Step Verification (skip if already enabled):")
-        print("  → https://myaccount.google.com/signinoptions/two-step-verification")
-        print()
-        print("Step 2 — Create an App Password:")
-        print("  → https://myaccount.google.com/apppasswords")
-        print("  → Under \"App name\" type: icontext → click Create")
-        print("  → Copy the 16-character password shown")
-        print()
-        print("Note: If you use a work/school Google account, your admin may have")
-        print("disabled App Passwords. In that case, use your personal Gmail instead.")
-        print()
-        input("Press Enter when you have your app password ready (Ctrl+C to cancel):")
-        print()
+        _print("")
+        _print(_hr())
+        _print(f"    {_c(C.BOLD, 'icontext · connect gmail')}")
+        _print(_hr())
+        _print("")
+        _print(f"  Gmail requires an App Password.")
+        _print("")
+        _print(f"  {_c(C.BOLD, 'Step 1')} — Enable 2-Step Verification:")
+        _print(_info("https://myaccount.google.com/signinoptions/two-step-verification"))
+        _print("")
+        _print(f"  {_c(C.BOLD, 'Step 2')} — Create App Password:")
+        _print(_info("https://myaccount.google.com/apppasswords"))
+        _print(_info("App name: icontext → click Create → copy 16-char code"))
+        _print("")
+        _print(_warn("Work/school accounts may have App Passwords disabled."))
+        _print(f"    Use a personal Gmail if so.")
+        _print("")
+        input(f"  Press Enter when ready...")
+        _print("")
 
         cfg = self.load_config(vault)
         accounts: list[dict] = cfg.get("accounts", [])
 
         while True:
-            addr = input("Gmail address: ").strip()
+            addr = input("  Gmail address: ").strip()
             if not addr:
-                print("Email address is required.")
+                _print(_err("Email address is required."))
                 continue
-            pwd = getpass.getpass("App password (16 chars): ").replace(" ", "")
+            pwd = getpass.getpass("  App password (16 chars): ").replace(" ", "")
             if not pwd:
-                print("App password is required.")
+                _print(_err("App password is required."))
                 continue
-            label = input("Label (e.g. PRIMARY, WORK — or just press Enter): ").strip() or "PRIMARY"
+            label = input("  Label (e.g. PRIMARY, WORK — or just press Enter): ").strip() or "PRIMARY"
 
             # Test the connection (30-second timeout covers slow network + bad credentials)
             try:
                 conn = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
                 conn.login(addr, pwd)
                 conn.logout()
-                print(f"icontext: gmail connected ({addr})")
+                _print(_ok(f"gmail connected ({addr})"))
             except imaplib.IMAP4.error as exc:
                 # IMAP-level auth error — likely wrong app password
-                print(f"Login failed: {exc}")
-                print("Tip: make sure you copied the 16-character app password exactly (no spaces).")
-                retry = input("Try again? [y/N]: ").strip().lower()
+                _print(_err(f"Login failed: {exc}"))
+                _print(_warn("Make sure you copied the 16-character app password exactly (no spaces)."))
+                retry = input("  Try again? [y/N]: ").strip().lower()
                 if retry != "y":
                     break
                 continue
             except OSError as exc:
                 # Network / DNS / timeout
-                print(f"Network error: {exc}")
-                print("Check your internet connection and try again.")
-                retry = input("Try again? [y/N]: ").strip().lower()
+                _print(_err(f"Network error: {exc}"))
+                _print(_warn("Check your internet connection and try again."))
+                retry = input("  Try again? [y/N]: ").strip().lower()
                 if retry != "y":
                     break
                 continue
             except Exception as exc:
-                print(f"Connection failed: {exc}")
-                retry = input("Try again? [y/N]: ").strip().lower()
+                _print(_err(f"Connection failed: {exc}"))
+                retry = input("  Try again? [y/N]: ").strip().lower()
                 if retry != "y":
                     break
                 continue
 
             accounts.append({"address": addr, "app_password": pwd, "label": label})
 
-            another = input("Add another account? [y/N]: ").strip().lower()
+            another = input(f"  {_c(C.CYAN, '→')} add another account? [y/N]: ").strip().lower()
             if another != "y":
                 break
 
         if not accounts:
-            print("No accounts configured.")
+            _print(_warn("No accounts configured."))
             return
 
         cfg["accounts"] = accounts
         cfg.setdefault("scan_days", 90)
         self.save_config(vault, cfg)
         cfg_path = vault / ".icontext" / "connectors.json"
-        print(f"Saved {len(accounts)} account(s) to config.")
-        print()
-        print(f"Note: credentials are stored in {cfg_path}")
-        print("Make sure this vault is not pushed to a public git repository.")
-        print("Run 'git remote -v' to check — or keep the vault local-only.")
+        _print(_ok(f"saved {len(accounts)} account(s)"))
+        _print(_warn(f"credentials stored in {cfg_path}"))
+        _print(f"    Keep this vault out of public git repositories.")
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
@@ -328,32 +328,51 @@ class GmailConnector(BaseConnector):
             pwd = acct["app_password"]
             own_addresses.add(addr.lower())
 
-            print(f"Connecting to {addr}...")
+            label_width = 36
+            label = f"connecting to {addr}..."
+            if sys.stdout.isatty():
+                print(f"  {_c(C.CYAN, '→')} {label:<{label_width}}", end="", flush=True)
+            else:
+                _print(_info(label))
             try:
                 conn = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
                 conn.login(addr, pwd)
+                if sys.stdout.isatty():
+                    print(f" {_c(C.GREEN, '✓')}")
             except imaplib.IMAP4.error as exc:
-                print(f"  Login failed for {addr}: {exc}")
-                print(f"  Tip: re-run 'icontext connect gmail' to update the app password for {addr}.")
+                if sys.stdout.isatty():
+                    print(f" {_c(C.RED, '✗')}")
+                _print(_err(f"Login failed for {addr}: {exc}"))
+                _print(_warn(f"Re-run 'icontext connect gmail' to update the app password."))
                 continue
             except OSError as exc:
-                print(f"  Network error connecting to {addr}: {exc}")
+                if sys.stdout.isatty():
+                    print(f" {_c(C.RED, '✗')}")
+                _print(_err(f"Network error connecting to {addr}: {exc}"))
                 continue
             except Exception as exc:
-                print(f"  Failed to connect to {addr}: {exc}")
+                if sys.stdout.isatty():
+                    print(f" {_c(C.RED, '✗')}")
+                _print(_err(f"Failed to connect to {addr}: {exc}"))
                 continue
 
             try:
                 # Scan inbox
                 inbox_msgs = _fetch_folder(conn, "INBOX", since_date, 300)
-                print(f"  INBOX: {len(inbox_msgs)} messages")
-                all_messages.extend(inbox_msgs)
+                total = len(inbox_msgs)
 
                 # Scan sent
                 sent_folder = _find_sent_folder(conn)
                 sent_msgs = _fetch_folder(conn, sent_folder, since_date, 200)
-                print(f"  Sent: {len(sent_msgs)} messages")
+                total += len(sent_msgs)
+                all_messages.extend(inbox_msgs)
                 all_messages.extend(sent_msgs)
+
+                scan_label = f"scanning {total} messages..."
+                if sys.stdout.isatty():
+                    print(f"  {_c(C.CYAN, '→')} {scan_label:<{label_width}} {_c(C.GREEN, '✓')}")
+                else:
+                    _print(_ok(f"scanned {total} messages"))
             finally:
                 try:
                     conn.logout()
@@ -363,7 +382,6 @@ class GmailConnector(BaseConnector):
         if not all_messages:
             raise RuntimeError("No messages retrieved from any account.")
 
-        print(f"Building summary from {len(all_messages)} messages...")
         summary = _build_summary(all_messages, own_addresses)
 
         # Trim to ~8000 chars for Gemini
@@ -371,13 +389,44 @@ class GmailConnector(BaseConnector):
             summary = summary[:8000] + "\n[truncated]"
 
         prompt = _SYNTHESIS_PROMPT.format(summary=summary)
-        print("Synthesizing profile with Gemini...")
-        gemini_output = self.gemini_synthesize(prompt)
+
+        synth_label = "synthesizing with Gemini..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {synth_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(synth_label))
+
+        import subprocess as _sp
+        sidecar_check = _sp.run(["which", "ai-sidecar"], capture_output=True)
+        if sidecar_check.returncode != 0:
+            if sys.stdout.isatty():
+                print(f" {_c(C.RED, '✗')}")
+            raise RuntimeError(
+                "ai-sidecar not found. Install it first:\n"
+                "  See: https://github.com/floomhq/icontext#requirements"
+            )
+        result = _sp.run(
+            ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            if sys.stdout.isatty():
+                print(f" {_c(C.RED, '✗')}")
+            raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
+        gemini_output = result.stdout.strip()
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
 
         if not gemini_output.strip():
             raise RuntimeError(
                 "Gemini returned an empty response. Try again with: icontext sync gmail"
             )
+
+        write_label = "writing profile..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {write_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(write_label))
 
         today = datetime.now(UTC).strftime("%Y-%m-%d")
         account_list = ", ".join(a["address"] for a in accounts)
@@ -408,8 +457,18 @@ class GmailConnector(BaseConnector):
                 f"---\nsource: icontext/gmail\ngenerated: {today}\n---\n\n{projects_text}\n",
             )
 
-        # Write shareable context card (only if we have a real profile to summarize)
-        print("  Writing shareable context card...")
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
+        else:
+            _print(_ok("profile written"))
+
+        # Write shareable context card
+        card_label = "writing context card..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {card_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(card_label))
+
         card_prompt = (
             "From this user profile, write a short shareable context card (under 200 words) "
             "that is safe to share with collaborators. Include: who they are, what they're "
@@ -417,15 +476,28 @@ class GmailConnector(BaseConnector):
             "Just professional public-facing context.\n\nPROFILE:\n" + gemini_output
         )
         try:
-            card_content = self.gemini_synthesize(card_prompt)
+            card_result = _sp.run(
+                ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", card_prompt],
+                capture_output=True, text=True, timeout=120,
+            )
+            card_content = card_result.stdout.strip() if card_result.returncode == 0 else ""
             if card_content.strip():
                 self.write_profile(
                     vault, "shareable/profile/context-card.md",
                     f"---\nshareable: true\ngenerated: {today}\nsource: icontext\n---\n\n{card_content}\n",
                 )
+                if sys.stdout.isatty():
+                    print(f" {_c(C.GREEN, '✓')}")
+                else:
+                    _print(_ok("context card written"))
+            else:
+                if sys.stdout.isatty():
+                    print(f" {_c(C.YELLOW, '!')}")
+                _print(_warn("context card skipped (empty response)"))
         except Exception as exc:
-            # Card is a nice-to-have — don't fail the whole sync over it
-            print(f"  Warning: could not generate context card: {exc}")
+            if sys.stdout.isatty():
+                print(f" {_c(C.YELLOW, '!')}")
+            _print(_warn(f"could not generate context card: {exc}"))
 
         # Update last_sync in config
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

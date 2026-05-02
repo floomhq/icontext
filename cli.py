@@ -4,10 +4,59 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+
+class C:
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    DIM    = "\033[2m"
+    GREEN  = "\033[32m"
+    CYAN   = "\033[36m"
+    YELLOW = "\033[33m"
+    RED    = "\033[31m"
+    WHITE  = "\033[97m"
+
+
+def _c(color: str, text: str) -> str:
+    return f"{color}{text}{C.RESET}"
+
+
+def _ok(msg: str)   -> str: return f"  {_c(C.GREEN,  '✓')} {msg}"
+def _info(msg: str) -> str: return f"  {_c(C.CYAN,   '→')} {msg}"
+def _warn(msg: str) -> str: return f"  {_c(C.YELLOW, '!')} {msg}"
+def _err(msg: str)  -> str: return f"  {_c(C.RED,    '✗')} {msg}"
+def _hr()           -> str: return f"  {_c(C.DIM, '─' * 44)}"
+
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r'\033\[[0-9;]*m', '', text)
+
+
+def _print(msg: str) -> None:
+    if not sys.stdout.isatty():
+        print(_strip_ansi(msg))
+    else:
+        print(msg)
+
+
+def _header(cmd: str) -> None:
+    _print("")
+    _print(_hr())
+    _print(f"    {_c(C.BOLD, f'icontext · {cmd}')}")
+    _print(_hr())
+
+
+# ---------------------------------------------------------------------------
+# Vault helpers
+# ---------------------------------------------------------------------------
 
 def _resolve_vault(vault_arg: str | None) -> Path:
     if vault_arg:
@@ -19,11 +68,13 @@ def _resolve_vault(vault_arg: str | None) -> Path:
     if default.exists():
         return default
     sys.exit(
-        "Vault not found.\n"
         "\n"
-        "Run 'icontext init' first to create your vault, or specify the path:\n"
-        "  icontext --vault /path/to/your/vault <command>\n"
-        "  ICONTEXT_VAULT=/path/to/your/vault icontext <command>"
+        + _err("Vault not found.")
+        + "\n\n"
+        + _info("Run 'icontext init' to create your vault, or specify the path:")
+        + "\n"
+        + "    icontext --vault /path/to/vault <command>\n"
+        + "    ICONTEXT_VAULT=/path/to/vault icontext <command>\n"
     )
 
 
@@ -55,7 +106,34 @@ def _get_connector(source: str):
     if source == "linkedin":
         from connectors.linkedin import LinkedInConnector
         return LinkedInConnector()
-    sys.exit(f"error: unknown source '{source}'. Valid: gmail, linkedin")
+    sys.exit(_err(f"unknown source '{source}'. Valid: gmail, linkedin"))
+
+
+# ---------------------------------------------------------------------------
+# Relative time helper
+# ---------------------------------------------------------------------------
+
+def _relative_time(iso: str | None) -> str:
+    """Convert an ISO timestamp to a human-readable relative string."""
+    if not iso:
+        return "never"
+    try:
+        from datetime import UTC, datetime
+        ts = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        delta = datetime.now(UTC) - ts
+        secs = int(delta.total_seconds())
+        if secs < 60:
+            return "just now"
+        if secs < 3600:
+            m = secs // 60
+            return f"{m}m ago"
+        if secs < 86400:
+            h = secs // 3600
+            return f"{h}h ago"
+        d = secs // 86400
+        return f"{d}d ago"
+    except Exception:
+        return iso
 
 
 # ---------------------------------------------------------------------------
@@ -66,31 +144,58 @@ def cmd_status(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     _add_scripts_to_path()
 
-    print(f"vault: {vault}")
+    _header("status")
+    _print("")
 
-    # Count files per tier
-    for tier in ("shareable", "internal", "vault"):
-        tier_dir = vault / tier
-        if tier_dir.is_dir():
-            count = sum(1 for _ in tier_dir.rglob("*") if _.is_file())
-            print(f"  {tier}: {count} file(s)")
+    # Vault path
+    home = str(Path("~").expanduser())
+    vault_display = str(vault).replace(home, "~")
+    _print(f"  {'vault':<12}{_c(C.WHITE, vault_display)}")
 
-    # Show connector statuses
-    cfg_path = vault / ".icontext" / "connectors.json"
+    # Connector statuses
     sources = ["gmail", "linkedin"]
-    print()
-    print("Connectors:")
     for source in sources:
         try:
             connector = _get_connector(source)
             st = connector.status(vault)
-            connected = "yes" if st["connected"] else "no"
-            last_sync = st.get("last_sync") or "never"
+            connected = st["connected"]
+            last_sync = _relative_time(st.get("last_sync"))
             summary = st.get("summary", "")
-            print(f"  {source}: connected={connected}, last_sync={last_sync}, {summary}")
+            # Extract display value from summary
+            if source == "gmail" and connected:
+                accounts_str = summary.replace(f"{summary.split(':')[0]}: ", "") if ":" in summary else summary
+                # Show first address only for brevity
+                first_addr = accounts_str.split(",")[0].strip()
+                val = f"{first_addr}  {_c(C.DIM, '·')}  synced {last_sync}"
+            elif source == "linkedin" and connected:
+                pdf_name = summary.replace("pdf: ", "") if summary.startswith("pdf: ") else summary
+                val = f"{pdf_name}  {_c(C.DIM, '·')}  synced {last_sync}"
+            else:
+                val = _c(C.DIM, "not connected")
+            _print(f"  {source:<12}{val}")
         except Exception as exc:
-            print(f"  {source}: error — {exc}")
+            _print(f"  {source:<12}{_c(C.RED, str(exc))}")
 
+    # Profile file
+    profile_path = vault / "internal" / "profile" / "user.md"
+    if profile_path.exists():
+        size_kb = profile_path.stat().st_size / 1024
+        home = str(Path("~").expanduser())
+        rel = str(profile_path).replace(home, "~")
+        _print(f"  {'profile':<12}{rel}  {_c(C.DIM, f'·  {size_kb:.1f}KB')}")
+    else:
+        _print(f"  {'profile':<12}{_c(C.DIM, 'not generated yet')}")
+
+    # Context card
+    card_path = vault / "shareable" / "profile" / "context-card.md"
+    if card_path.exists():
+        home = str(Path("~").expanduser())
+        rel = str(card_path).replace(home, "~")
+        _print(f"  {'card':<12}{rel}")
+    else:
+        _print(f"  {'card':<12}{_c(C.DIM, 'not generated yet')}")
+
+    _print(_hr())
     return 0
 
 
@@ -102,7 +207,6 @@ def cmd_connect(args: argparse.Namespace) -> int:
         connector.connect(vault, pdf_path=pdf_path)
     else:
         connector.connect(vault)
-    print(f"icontext: {args.source} connector configured.")
     return 0
 
 
@@ -120,35 +224,43 @@ def cmd_sync(args: argparse.Namespace) -> int:
             cfg = json.loads(cfg_path.read_text())
             sources_to_sync = list(cfg.keys())
         if not sources_to_sync:
-            print("No sources configured yet.")
-            print()
-            print("Connect a source first:")
-            print("  icontext connect gmail      # connect your Gmail inbox")
-            print("  icontext connect linkedin   # add your LinkedIn profile")
+            _header("sync")
+            _print("")
+            _print(_warn("No sources configured yet."))
+            _print("")
+            _print(_info("Connect a source first:"))
+            _print("    icontext connect gmail")
+            _print("    icontext connect linkedin --pdf ~/Downloads/Profile.pdf")
+            _print("")
             return 1
+
+    _header("sync")
+    _print("")
 
     exit_code = 0
     for source in sources_to_sync:
-        print(f"Syncing {source}...")
+        _print(_info(source))
         try:
             connector = _get_connector(source)
-            result = connector.sync(vault)
-            print(f"  {result}")
+            connector.sync(vault)
         except Exception as exc:
-            print(f"  error: {exc}")
+            _print(_err(str(exc)))
             exit_code = 1
+        _print("")
 
     if exit_code == 0 and sources_to_sync:
-        print()
-        print("─────────────────────────────────────────────")
-        print("icontext: profile ready")
-        print()
-        print("Claude Code now knows who you are. To verify, open a new Claude Code")
-        print('session and ask: "What do you know about me?"')
-        print()
-        print(f"Profile: {vault}/internal/profile/user.md")
-        print("Refresh:  icontext sync")
-        print("─────────────────────────────────────────────")
+        home = str(Path("~").expanduser())
+        profile_path = vault / "internal" / "profile" / "user.md"
+        profile_display = str(profile_path).replace(home, "~")
+
+        _print(_ok("context card ready"))
+        _print(_hr())
+        _print(_ok(f"done  {_c(C.DIM, profile_display)}"))
+        _print("")
+        _print("  Open Claude Code and ask:")
+        _print(f'    {_c(C.DIM, chr(34) + "What do you know about me?" + chr(34))}')
+        _print(_hr())
+        _print("")
 
     return exit_code
 
@@ -160,16 +272,16 @@ def cmd_search(args: argparse.Namespace) -> int:
     try:
         from indexlib import search
     except ImportError:
-        sys.exit("error: indexlib not found. Run from icontext repo root or after install.")
+        sys.exit(_err("indexlib not found. Run from icontext repo root or after install."))
 
     results = search(vault, args.query, limit=args.limit, tier=args.tier or None)
     if not results:
-        print("No results.")
+        _print(_warn("No results."))
         return 0
     for r in results:
-        print(f"[{r.tier}] {r.path} (score: {r.score:.2f})")
-        print(f"  {r.snippet}")
-        print()
+        _print(f"  {_c(C.CYAN, r.tier)}  {r.path}  {_c(C.DIM, f'score: {r.score:.2f}')}")
+        _print(f"    {_c(C.DIM, r.snippet)}")
+        _print("")
     return 0
 
 
@@ -180,75 +292,79 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     try:
         from indexlib import rebuild
     except ImportError:
-        sys.exit("error: indexlib not found. Run from icontext repo root or after install.")
+        sys.exit(_err("indexlib not found. Run from icontext repo root or after install."))
 
-    print(f"Rebuilding index for {vault}...")
+    _print(_info(f"Rebuilding index for {vault}..."))
     count = rebuild(vault)
-    print(f"Indexed {count} file(s).")
+    _print(_ok(f"Indexed {count} file(s)."))
     return 0
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    import subprocess
-    from pathlib import Path
+    import subprocess as _sp
 
     vault_path = args.vault or str(Path("~/context").expanduser())
     vault = Path(vault_path).expanduser().resolve()
+    home = str(Path("~").expanduser())
+    vault_display = str(vault).replace(home, "~")
+
+    _header("init")
+    _print("")
 
     # 1. Create vault directory structure
+    _print(_info(f"creating vault at {vault_display}"))
     for subdir in ("shareable", "internal/profile", "vault"):
         (vault / subdir).mkdir(parents=True, exist_ok=True)
-    print(f"icontext: vault directory ready at {vault}")
+    _print(_ok("shareable/   internal/   vault/   ready"))
 
     # 2. Git init if needed
     git_dir = vault / ".git"
     if not git_dir.exists():
-        subprocess.run(["git", "init", str(vault)], check=True, capture_output=True)
+        _sp.run(["git", "init", str(vault)], check=True, capture_output=True)
 
         # Check git identity; set a temporary default if not configured
-        result = subprocess.run(
+        result = _sp.run(
             ["git", "config", "user.email"],
             capture_output=True, text=True, cwd=str(vault),
         )
         if not result.stdout.strip():
-            subprocess.run(
+            _sp.run(
                 ["git", "config", "user.email", "icontext@local"],
                 cwd=str(vault), capture_output=True,
             )
-            subprocess.run(
+            _sp.run(
                 ["git", "config", "user.name", "icontext"],
                 cwd=str(vault), capture_output=True,
             )
 
-        subprocess.run(
+        _sp.run(
             ["git", "-C", str(vault), "commit", "--allow-empty", "-m", "init: icontext vault"],
             check=True,
             capture_output=True,
         )
-        print("icontext: git repo initialised")
+    _print(_ok("git repo initialised"))
 
     # 3. Install icontext if not already installed
     installed_marker = vault / ".icontext-installed"
     icontext_dir = Path("~/icontext").expanduser()
     if installed_marker.exists():
-        print("icontext: already installed, skipping clone/install")
+        _print(_ok("icontext installed"))
     else:
         if not (icontext_dir / ".git").exists():
-            print("icontext: cloning floomhq/icontext to ~/icontext...")
-            subprocess.run(
+            _print(_info("cloning floomhq/icontext..."))
+            _sp.run(
                 ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
                 check=False,
             )
         install_sh = icontext_dir / "install.sh"
         if install_sh.exists():
-            print("icontext: running installer...")
-            subprocess.run(
+            _sp.run(
                 ["bash", str(install_sh), "--vault", str(vault), "--mode", "agents", "--yes"],
                 check=False,
             )
+        _print(_ok("icontext installed"))
 
-    # 4. Insert CLAUDE.md snippet (use the actual resolved vault path so it
-    #    works even when ICONTEXT_VAULT env var is not set in the shell)
+    # 4. Insert CLAUDE.md snippet
     claude_md = Path("~/.claude/CLAUDE.md").expanduser()
     snippet = (
         "\n<!-- icontext -->\n"
@@ -266,37 +382,53 @@ def cmd_init(args: argparse.Namespace) -> int:
         existing = ""
 
     if "<!-- icontext -->" in existing:
-        print("icontext: CLAUDE.md snippet already present, skipping")
+        _print(_ok("CLAUDE.md updated — auto-sync active"))
     else:
         claude_md.write_text(existing + snippet)
-        print("icontext: CLAUDE.md updated — Claude Code will auto-sync your profile")
+        _print(_ok("CLAUDE.md updated — auto-sync active"))
 
-    # 5. Success message
-    print()
-    print("─────────────────────────────────────────────")
-    print(f"icontext: vault ready at {vault}")
-    print()
-    print("Next steps:")
-    print("  icontext connect gmail      # connect your Gmail")
-    print("  icontext connect linkedin   # add your LinkedIn profile")
-    print("  icontext sync               # build your profile")
-    print("─────────────────────────────────────────────")
+    _print(_hr())
+    _print("")
+    _print("  Next:")
+    _print("    icontext connect gmail")
+    _print("    icontext connect linkedin --pdf ~/Downloads/Profile.pdf")
+    _print("    icontext sync")
+    _print("")
+
     return 0
 
 
 def cmd_share(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     card_path = vault / "shareable" / "profile" / "context-card.md"
+    home = str(Path("~").expanduser())
+    card_display = str(card_path).replace(home, "~")
+
     if not card_path.exists():
-        print("No context card found yet.")
-        print()
-        print("The context card is created automatically during your first Gmail sync.")
-        print("Run:")
-        print("  icontext connect gmail   # if not done yet")
-        print("  icontext sync            # generates the card")
+        _header("share")
+        _print("")
+        _print(_warn("No context card found yet."))
+        _print("")
+        _print("  The card is generated automatically during your first Gmail sync.")
+        _print("")
+        _print(_info("icontext connect gmail   # if not done yet"))
+        _print(_info("icontext sync            # generates the card"))
+        _print("")
         return 1
-    print(card_path.read_text())
-    print(f"\nFile location: {card_path}")
+
+    _header("your context card")
+    _print("")
+    # Print card content (no color, it's markdown)
+    content = card_path.read_text()
+    for line in content.splitlines():
+        print(f"  {line}")
+    _print("")
+    _print(_hr())
+    _print(f"  file: {_c(C.DIM, card_display)}")
+    _print("  share: email it, paste it into a new AI session,")
+    _print("         or drop it into a collaborator's vault")
+    _print(_hr())
+    _print("")
     return 0
 
 
@@ -313,7 +445,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     ]
     doctor_script = next((p for p in candidates if p.exists()), None)
     if doctor_script is None:
-        sys.exit("error: doctor.py not found.")
+        sys.exit(_err("doctor.py not found."))
 
     result = subprocess.run(
         [sys.executable, str(doctor_script), "--repo", str(vault)],

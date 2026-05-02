@@ -2,11 +2,54 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import sys
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
 
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+
+class C:
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    DIM    = "\033[2m"
+    GREEN  = "\033[32m"
+    CYAN   = "\033[36m"
+    YELLOW = "\033[33m"
+    RED    = "\033[31m"
+    WHITE  = "\033[97m"
+
+
+def _c(color: str, text: str) -> str:
+    return f"{color}{text}{C.RESET}"
+
+
+def _ok(msg: str)   -> str: return f"  {_c(C.GREEN,  '✓')} {msg}"
+def _info(msg: str) -> str: return f"  {_c(C.CYAN,   '→')} {msg}"
+def _warn(msg: str) -> str: return f"  {_c(C.YELLOW, '!')} {msg}"
+def _err(msg: str)  -> str: return f"  {_c(C.RED,    '✗')} {msg}"
+def _hr()           -> str: return f"  {_c(C.DIM, '─' * 44)}"
+
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r'\033\[[0-9;]*m', '', text)
+
+
+def _print(msg: str) -> None:
+    if not sys.stdout.isatty():
+        print(_strip_ansi(msg))
+    else:
+        print(msg)
+
+
+# ---------------------------------------------------------------------------
+# Base connector
+# ---------------------------------------------------------------------------
 
 class BaseConnector(ABC):
     name: str
@@ -50,13 +93,19 @@ class BaseConnector(ABC):
                 "  See: https://github.com/floomhq/icontext#requirements"
             )
 
-        print("  Synthesizing with Gemini (this takes ~10 seconds)...")
+        _print(_info("synthesizing with Gemini...") + "          ")
+        if sys.stdout.isatty():
+            print(f"\033[A\r  {_c(C.CYAN, '→')} synthesizing with Gemini...", end="", flush=True)
         result = subprocess.run(
             ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode != 0:
+            if sys.stdout.isatty():
+                print()
             raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
         return result.stdout.strip()
 
     @abstractmethod

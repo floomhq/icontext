@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .base import BaseConnector
+from .base import BaseConnector, C, _c, _ok, _info, _warn, _err, _hr, _print
 
 _SYNTHESIS_PROMPT = """Build a structured professional profile from this LinkedIn PDF export for use by an AI assistant (Claude Code). The AI will use this to understand the person's professional background, skills, and positioning.
 
@@ -70,18 +71,21 @@ class LinkedInConnector(BaseConnector):
     name = "linkedin"
 
     def connect(self, vault: Path, pdf_path: str | None = None) -> None:
+        _print("")
+        _print(_hr())
+        _print(f"    {_c(C.BOLD, 'icontext · connect linkedin')}")
+        _print(_hr())
+
         if pdf_path is None:
-            print("icontext: Connect LinkedIn")
-            print("─────────────────────────────────────────────")
-            print("Save your LinkedIn profile as a PDF:")
-            print()
-            print("  1. Go to: linkedin.com/in/your-username")
-            print("  2. Click the \"More\" button below your name")
-            print("  3. Click \"Save to PDF\"")
-            print("  4. The PDF downloads to your Downloads folder")
-            print("     (usually named 'Profile.pdf')")
-            print()
-            raw_path = input("Path to your LinkedIn PDF [~/Downloads/Profile.pdf]: ").strip()
+            _print("")
+            _print("  Save your LinkedIn profile as a PDF:")
+            _print("")
+            _print(_info("Go to: linkedin.com/in/your-username"))
+            _print(_info("Click the \"More\" button below your name"))
+            _print(_info("Click \"Save to PDF\""))
+            _print(_info("The PDF downloads to ~/Downloads/ (usually Profile.pdf)"))
+            _print("")
+            raw_path = input("  Path to your LinkedIn PDF [~/Downloads/Profile.pdf]: ").strip()
             if not raw_path:
                 raw_path = "~/Downloads/Profile.pdf"
         else:
@@ -95,29 +99,32 @@ class LinkedInConnector(BaseConnector):
             # Try to help the user find their file
             downloads = Path("~/Downloads").expanduser()
             pdf_candidates = sorted(downloads.glob("*.pdf")) if downloads.is_dir() else []
-            print(f"File not found: {export_path}")
+            _print(_err(f"File not found: {export_path}"))
             if pdf_candidates:
-                print()
-                print("PDFs in ~/Downloads:")
-                for p in pdf_candidates[-5:]:  # show up to 5 most recent
-                    print(f"  {p.name}")
-                print()
-                print("Re-run with the correct path:")
-                print(f"  icontext connect linkedin --pdf ~/Downloads/{pdf_candidates[-1].name}")
+                _print("")
+                _print("  PDFs in ~/Downloads:")
+                for p in pdf_candidates[-5:]:
+                    _print(_info(p.name))
+                _print("")
+                _print(_info(f"Re-run: icontext connect linkedin --pdf ~/Downloads/{pdf_candidates[-1].name}"))
             else:
-                print()
-                print("No PDFs found in ~/Downloads. Download your LinkedIn PDF first:")
-                print("  linkedin.com/in/your-username → More → Save to PDF")
-                print()
-                print("Then re-run: icontext connect linkedin")
+                _print("")
+                _print(_warn("No PDFs found in ~/Downloads. Download your LinkedIn PDF first:"))
+                _print(_info("linkedin.com/in/your-username → More → Save to PDF"))
+                _print("")
+                _print(_info("Then re-run: icontext connect linkedin"))
             return
 
         if export_path.suffix.lower() != ".pdf":
-            print(f"Warning: file does not appear to be a PDF: {export_path.name}")
+            _print(_warn(f"file does not appear to be a PDF: {export_path.name}"))
+
+        _print(_ok(f"PDF found: {export_path.name}"))
 
         cfg["pdf_path"] = str(export_path)
         self.save_config(vault, cfg)
-        print(f"icontext: LinkedIn PDF configured: {export_path}")
+        _print(_ok("LinkedIn connected"))
+        _print(_hr())
+        _print(_info("Run: icontext sync"))
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
@@ -129,8 +136,19 @@ class LinkedInConnector(BaseConnector):
         if not pdf_path.exists():
             raise RuntimeError(f"LinkedIn PDF not found: {pdf_path}")
 
-        print(f"Reading LinkedIn PDF: {pdf_path}")
+        label_width = 36
+
+        # Step 1: read PDF
+        read_label = "reading Profile.pdf..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {read_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(read_label))
         text = _read_pdf_text(pdf_path)
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
+        else:
+            _print(_ok("PDF read"))
 
         if not text.strip():
             raise RuntimeError("No text extracted from LinkedIn PDF.")
@@ -140,8 +158,42 @@ class LinkedInConnector(BaseConnector):
             text = text[:8000] + "\n[truncated]"
 
         prompt = _SYNTHESIS_PROMPT.format(text=text)
-        print("Synthesizing profile with Gemini...")
-        gemini_output = self.gemini_synthesize(prompt)
+
+        # Step 2: synthesize
+        synth_label = "synthesizing with Gemini..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {synth_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(synth_label))
+
+        sidecar_check = subprocess.run(["which", "ai-sidecar"], capture_output=True)
+        if sidecar_check.returncode != 0:
+            if sys.stdout.isatty():
+                print(f" {_c(C.RED, '✗')}")
+            raise RuntimeError(
+                "ai-sidecar not found. Install it first:\n"
+                "  See: https://github.com/floomhq/icontext#requirements"
+            )
+        result = subprocess.run(
+            ["ai-sidecar", "gemini", "--model", "gemini-2.5-flash", prompt],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            if sys.stdout.isatty():
+                print(f" {_c(C.RED, '✗')}")
+            raise RuntimeError(f"Gemini synthesis failed: {result.stderr[:500]}")
+        gemini_output = result.stdout.strip()
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
+        else:
+            _print(_ok("synthesized"))
+
+        # Step 3: write profile
+        write_label = "writing profile..."
+        if sys.stdout.isatty():
+            print(f"  {_c(C.CYAN, '→')} {write_label:<{label_width}}", end="", flush=True)
+        else:
+            _print(_info(write_label))
 
         today = datetime.now(UTC).strftime("%Y-%m-%d")
         profile = (
@@ -155,6 +207,11 @@ class LinkedInConnector(BaseConnector):
         )
 
         self.write_profile(vault, "internal/profile/linkedin.md", profile)
+
+        if sys.stdout.isatty():
+            print(f" {_c(C.GREEN, '✓')}")
+        else:
+            _print(_ok("profile written"))
 
         cfg["last_sync"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.save_config(vault, cfg)
