@@ -48,7 +48,10 @@ if [ -d "$ICONTEXT_DIR/.git" ]; then
     git -C "$ICONTEXT_DIR" pull --ff-only --quiet
 else
     echo "icontext: cloning to $ICONTEXT_DIR"
-    git clone --quiet https://github.com/floomhq/icontext "$ICONTEXT_DIR"
+    # TEMPORARY: pin to feat branch until PR #1 merges to main
+    # REMOVE branch pin once PR #1 merges to main
+    git clone --quiet --branch feat/connectors-cli https://github.com/floomhq/icontext "$ICONTEXT_DIR" \
+        || git clone --quiet https://github.com/floomhq/icontext "$ICONTEXT_DIR"
 fi
 
 # Install CLI

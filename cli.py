@@ -367,10 +367,18 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         if not (icontext_dir / ".git").exists():
             _print(_info("cloning floomhq/icontext..."))
-            _sp.run(
-                ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
+            # TEMPORARY: pin to feat branch until PR #1 merges to main
+            # REMOVE branch pin once PR #1 merges to main
+            clone_result = _sp.run(
+                ["git", "clone", "--quiet", "--branch", "feat/connectors-cli",
+                 "https://github.com/floomhq/icontext", str(icontext_dir)],
                 check=False,
             )
+            if clone_result.returncode != 0:
+                _sp.run(
+                    ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
+                    check=False,
+                )
         install_sh = icontext_dir / "install.sh"
         if install_sh.exists():
             result = _sp.run(
@@ -402,10 +410,16 @@ def cmd_init(args: argparse.Namespace) -> int:
         claude_md.parent.mkdir(parents=True, exist_ok=True)
         existing = ""
 
-    if "<!-- icontext -->" in existing:
-        _print(_ok("CLAUDE.md updated — auto-sync active"))
+    pattern = re.compile(r"<!-- icontext -->.*?<!-- /icontext -->", re.DOTALL)
+    if pattern.search(existing):
+        new_text = pattern.sub(snippet.strip(), existing)
+        if new_text != existing:
+            claude_md.write_text(new_text)
+            _print(_ok("CLAUDE.md updated (vault path refreshed)"))
+        else:
+            _print(_ok("CLAUDE.md already up to date"))
     else:
-        claude_md.write_text(existing + snippet)
+        claude_md.write_text(existing + "\n\n" + snippet)
         _print(_ok("CLAUDE.md updated — auto-sync active"))
 
     _print(_hr())
@@ -507,6 +521,14 @@ def main() -> int:
 
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
+    def _add_vault_arg(p: argparse.ArgumentParser) -> None:
+        # default=argparse.SUPPRESS means this won't override the parent parser's --vault
+        # when the user puts --vault before the subcommand (e.g. icontext --vault PATH status)
+        p.add_argument(
+            "--vault", metavar="PATH", default=argparse.SUPPRESS,
+            help="path to vault directory (overrides ICONTEXT_VAULT env var; default: ~/context)",
+        )
+
     # init
     p_init = sub.add_parser(
         "init",
@@ -523,6 +545,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_init.set_defaults(func=cmd_init)
+    _add_vault_arg(p_init)
 
     # status
     p_status = sub.add_parser(
@@ -535,6 +558,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_status.set_defaults(func=cmd_status)
+    _add_vault_arg(p_status)
 
     # connect
     p_connect = sub.add_parser(
@@ -563,6 +587,7 @@ def main() -> int:
         ),
     )
     p_connect.set_defaults(func=cmd_connect)
+    _add_vault_arg(p_connect)
 
     # sync
     p_sync = sub.add_parser(
@@ -585,6 +610,7 @@ def main() -> int:
         help="sync only this source; omit to sync all configured sources",
     )
     p_sync.set_defaults(func=cmd_sync)
+    _add_vault_arg(p_sync)
 
     # search
     p_search = sub.add_parser(
@@ -609,6 +635,7 @@ def main() -> int:
     p_search.add_argument("--limit", type=int, default=5, metavar="N",
                           help="maximum number of results (default: 5)")
     p_search.set_defaults(func=cmd_search)
+    _add_vault_arg(p_search)
 
     # rebuild
     p_rebuild = sub.add_parser(
@@ -623,6 +650,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_rebuild.set_defaults(func=cmd_rebuild)
+    _add_vault_arg(p_rebuild)
 
     # share
     p_share = sub.add_parser(
@@ -641,6 +669,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_share.set_defaults(func=cmd_share)
+    _add_vault_arg(p_share)
 
     # doctor
     p_doctor = sub.add_parser(
@@ -655,6 +684,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_doctor.set_defaults(func=cmd_doctor)
+    _add_vault_arg(p_doctor)
 
     args = parser.parse_args()
 
