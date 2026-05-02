@@ -450,33 +450,49 @@ class Doctor:
                 self.warn("profile:context-card.md", f"{card_md} missing — run: icontext sync")
 
     def check_environment(self) -> None:
-        """Check API keys and Python dependencies."""
+        """Check optional headless-sync deps. Default install requires none of these."""
         import importlib
 
+        # All checks here are warn-level: the default flow uses agent skills, not Gemini.
+        # These deps only matter for the optional `icontext sync` headless fallback.
         gemini_key = os.environ.get("GEMINI_API_KEY")
         google_key = os.environ.get("GOOGLE_API_KEY")
         if gemini_key:
-            self.pass_("env:GEMINI_API_KEY", "set")
+            self.pass_("env:GEMINI_API_KEY", "set (optional — headless sync available)")
         elif google_key:
-            self.pass_("env:GOOGLE_API_KEY", "set (GEMINI_API_KEY not set, using GOOGLE_API_KEY)")
+            self.pass_("env:GOOGLE_API_KEY", "set (optional — headless sync available)")
         else:
-            self.warn(
+            self.pass_(
                 "env:api_key",
-                "neither GEMINI_API_KEY nor GOOGLE_API_KEY is set — "
-                "get a free key at https://aistudio.google.com/apikey",
+                "not set — default flow uses agent skills (no key required)",
             )
 
         try:
             importlib.import_module("google.generativeai")
-            self.pass_("env:google-generativeai", "importable")
+            self.pass_("env:google-generativeai", "importable (optional — for headless sync)")
         except ImportError:
-            self.fail("env:google-generativeai", "not installed — run: pip install google-generativeai")
+            self.pass_(
+                "env:google-generativeai",
+                "not installed — install only if you want headless sync: pip install 'icontext[sync]'",
+            )
 
         try:
             importlib.import_module("keyring")
-            self.pass_("env:keyring", "importable")
+            self.pass_("env:keyring", "importable (optional — for headless sync)")
         except ImportError:
-            self.warn("env:keyring", "not installed (credentials stored in plaintext) — pip install keyring")
+            self.pass_(
+                "env:keyring",
+                "not installed — install only if you want headless sync: pip install 'icontext[sync]'",
+            )
+
+        # Skill files installed?
+        skills_dir = Path("~/.claude/skills").expanduser()
+        skill_names = ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card")
+        missing = [n for n in skill_names if not (skills_dir / n / "SKILL.md").exists()]
+        if not missing:
+            self.pass_("skills:claude", f"all 3 skills installed at {skills_dir}")
+        else:
+            self.fail("skills:claude", f"missing skills: {', '.join(missing)} — run: icontext init")
 
     def check_claude_integration(self) -> None:
         """Check CLAUDE.md snippet and .mcp.json entry."""

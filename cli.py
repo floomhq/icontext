@@ -328,7 +328,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # 1. Create vault directory structure
     _print(_info(f"creating vault at {vault_display}"))
-    for subdir in ("shareable", "internal/profile", "vault"):
+    for subdir in ("shareable/profile", "internal/profile", "vault"):
         (vault / subdir).mkdir(parents=True, exist_ok=True)
     _print(_ok("shareable/   internal/   vault/   ready"))
 
@@ -359,43 +359,99 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
     _print(_ok("git repo initialised"))
 
-    # 3. Install icontext if not already installed
-    installed_marker = vault / ".icontext-installed"
-    icontext_dir = Path("~/icontext").expanduser()
-    if installed_marker.exists():
-        _print(_ok("icontext installed"))
-    else:
-        if not (icontext_dir / ".git").exists():
-            _print(_info("cloning floomhq/icontext..."))
-            _sp.run(
-                ["git", "clone", "--quiet", "https://github.com/floomhq/icontext", str(icontext_dir)],
-                check=False,
-            )
-        install_sh = icontext_dir / "install.sh"
-        if install_sh.exists():
-            result = _sp.run(
-                ["bash", str(install_sh), "--vault", str(vault), "--mode", "agents", "--yes"],
-                capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                _print(_warn(f"installer warning (exit {result.returncode})"))
-                if result.stderr:
-                    for line in result.stderr.strip().splitlines()[-5:]:
-                        _print(f"    {line}")
-                _print(_info("continuing — run `icontext doctor` to verify"))
-        _print(_ok("icontext installed"))
+    # 3. Install skills (Claude Code + Cursor)
+    skills_installed, skills_msgs = _install_skills()
+    for msg in skills_msgs:
+        _print(msg)
 
     # 4. Insert CLAUDE.md snippet
+    _install_claude_md_snippet(vault)
+
+    _print(_hr())
+    _print("")
+    _print("  Next:")
+    _print(f"    {_c(C.BOLD, 'open Claude Code')} and ask:")
+    _print(f'      {_c(C.DIM, chr(34) + "Populate my icontext profile" + chr(34))}')
+    _print("")
+    _print(f"  {_c(C.DIM, 'or, for headless setups (requires GEMINI_API_KEY):')}")
+    _print("    icontext connect gmail")
+    _print("    icontext sync")
+    _print("")
+
+    return 0
+
+
+def _install_skills() -> tuple[int, list[str]]:
+    """Install icontext skill files into ~/.claude/skills/ and ~/.cursor/rules/.
+
+    Returns (count_installed, list_of_status_messages).
+    """
+    msgs: list[str] = []
+    cli_dir = Path(__file__).resolve().parent
+    skills_src = cli_dir / "skills"
+    if not skills_src.is_dir():
+        # Try repo-root layout when cli is symlinked
+        skills_src = cli_dir.parent / "skills"
+    if not skills_src.is_dir():
+        msgs.append(_warn("skills/ source dir not found — skipping skill install"))
+        return 0, msgs
+
+    skill_names = ["icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"]
+    claude_skills_dir = Path("~/.claude/skills").expanduser()
+    cursor_rules_dir = Path("~/.cursor/rules").expanduser()
+    claude_skills_dir.mkdir(parents=True, exist_ok=True)
+    cursor_rules_dir.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    for name in skill_names:
+        src = skills_src / name / "SKILL.md"
+        if not src.exists():
+            msgs.append(_warn(f"missing skill source: {src}"))
+            continue
+
+        # Claude Code: ~/.claude/skills/<name>/SKILL.md
+        dest_claude = claude_skills_dir / name / "SKILL.md"
+        dest_claude.parent.mkdir(parents=True, exist_ok=True)
+        dest_claude.write_text(src.read_text())
+
+        # Cursor: ~/.cursor/rules/<name>.mdc (single-file equivalent)
+        dest_cursor = cursor_rules_dir / f"{name}.mdc"
+        dest_cursor.write_text(src.read_text())
+
+        count += 1
+
+    if count > 0:
+        msgs.append(_ok(f"{count} skill(s) installed (Claude Code + Cursor)"))
+    return count, msgs
+
+
+def _install_claude_md_snippet(vault: Path) -> None:
+    """Write or update the icontext snippet in ~/.claude/CLAUDE.md."""
     claude_md = Path("~/.claude/CLAUDE.md").expanduser()
+    home = str(Path("~").expanduser())
+    vault_short = str(vault).replace(home, "~")
+
     snippet = (
-        "\n<!-- icontext -->\n"
-        "## AI Context (icontext)\n"
-        f"Context vault is at {vault}. Profile lives at {vault}/internal/profile/user.md.\n"
-        "At the start of each session: if the profile was last modified more than 7 days ago, "
-        f"run `icontext sync --vault {vault}` in the background.\n"
-        "MCP tools available: search_vault, get_profile, sync_source, list_sources.\n"
-        "<!-- /icontext -->\n"
+        "<!-- icontext -->\n"
+        "## iContext (your context vault)\n\n"
+        f"Your context vault is at {vault_short} with this structure:\n\n"
+        "  internal/profile/    — private synthesized profile\n"
+        "    user.md            — full profile (identity, relationships, projects)\n"
+        "    relationships.md   — key contacts table\n"
+        "    projects.md        — active projects\n"
+        "  shareable/profile/   — shareable summaries\n"
+        "    context-card.md    — sendable to collaborators\n\n"
+        "ALWAYS read internal/profile/user.md at session start before answering personal\n"
+        "or work questions about the user.\n\n"
+        "If files are missing or older than 7 days, offer to populate/refresh.\n"
+        "To populate, invoke the icontext-populate-profile skill.\n\n"
+        "Available skills:\n"
+        "- icontext-populate-profile  (build profile from Gmail/LinkedIn/chat)\n"
+        "- icontext-refresh-profile   (update stale profile)\n"
+        "- icontext-share-card        (regenerate shareable summary)\n"
+        "<!-- /icontext -->"
     )
+
     if claude_md.exists():
         existing = claude_md.read_text()
     else:
@@ -404,25 +460,16 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     pattern = re.compile(r"<!-- icontext -->.*?<!-- /icontext -->", re.DOTALL)
     if pattern.search(existing):
-        new_text = pattern.sub(snippet.strip(), existing)
+        new_text = pattern.sub(snippet, existing)
         if new_text != existing:
             claude_md.write_text(new_text)
-            _print(_ok("CLAUDE.md updated (vault path refreshed)"))
+            _print(_ok("CLAUDE.md updated (skill references refreshed)"))
         else:
             _print(_ok("CLAUDE.md already up to date"))
     else:
-        claude_md.write_text(existing + "\n\n" + snippet)
-        _print(_ok("CLAUDE.md updated — auto-sync active"))
-
-    _print(_hr())
-    _print("")
-    _print("  Next:")
-    _print("    icontext connect gmail")
-    _print("    icontext connect linkedin --pdf ~/Downloads/Profile.pdf")
-    _print("    icontext sync")
-    _print("")
-
-    return 0
+        sep = "\n\n" if existing and not existing.endswith("\n\n") else ""
+        claude_md.write_text(existing + sep + snippet + "\n")
+        _print(_ok("CLAUDE.md updated — skills wired in"))
 
 
 def cmd_share(args: argparse.Namespace) -> int:
@@ -459,6 +506,55 @@ def cmd_share(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skills(args: argparse.Namespace) -> int:
+    """List or update installed icontext skills."""
+    import subprocess as _sp
+
+    action = getattr(args, "skills_action", None) or "list"
+    claude_skills_dir = Path("~/.claude/skills").expanduser()
+    cursor_rules_dir = Path("~/.cursor/rules").expanduser()
+    skill_names = ["icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"]
+
+    if action == "list":
+        _header("skills")
+        _print("")
+        for name in skill_names:
+            claude_path = claude_skills_dir / name / "SKILL.md"
+            cursor_path = cursor_rules_dir / f"{name}.mdc"
+            claude_status = _c(C.GREEN, "✓") if claude_path.exists() else _c(C.DIM, "—")
+            cursor_status = _c(C.GREEN, "✓") if cursor_path.exists() else _c(C.DIM, "—")
+            _print(f"  {name:<32}  claude {claude_status}   cursor {cursor_status}")
+        _print("")
+        _print(_hr())
+        return 0
+
+    if action == "update":
+        _header("skills · update")
+        _print("")
+        # Pull latest skill files from the icontext repo
+        icontext_dir = Path("~/icontext").expanduser()
+        if (icontext_dir / ".git").exists():
+            _print(_info("pulling latest from floomhq/icontext..."))
+            result = _sp.run(
+                ["git", "-C", str(icontext_dir), "pull", "--ff-only", "--quiet"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                _print(_warn(f"git pull failed: {result.stderr.strip()}"))
+        else:
+            _print(_warn(f"no icontext repo at {icontext_dir} — using bundled skills"))
+
+        count, msgs = _install_skills()
+        for msg in msgs:
+            _print(msg)
+        _print("")
+        _print(_hr())
+        return 0 if count > 0 else 1
+
+    _print(_err(f"unknown skills action: {action}"))
+    return 1
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     vault = _resolve_vault(args.vault)
     _add_scripts_to_path()
@@ -492,12 +588,16 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  icontext init\n"
+            "  icontext init                                    # set up vault + skills\n"
+            "  icontext skills list                             # show installed skills\n"
+            "  icontext skills update                           # pull latest skills\n"
+            "  icontext status                                  # show vault state\n"
+            "  icontext search 'fundraising'\n"
+            "\n"
+            "headless / fallback (requires GEMINI_API_KEY):\n"
             "  icontext connect gmail\n"
             "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf\n"
             "  icontext sync\n"
-            "  icontext status\n"
-            "  icontext search 'fundraising'\n"
             "\n"
             "docs: https://icontext.dev\n"
             "issues: https://github.com/floomhq/icontext/issues"
@@ -524,15 +624,17 @@ def main() -> int:
     # init
     p_init = sub.add_parser(
         "init",
-        help="set up a new vault and wire Claude Code integration",
+        help="set up a new vault and install agent skills",
         description=(
-            "Create a new context vault at ~/context (or --vault PATH), initialise a git repo,\n"
-            "and insert an auto-sync snippet into ~/.claude/CLAUDE.md so Claude Code loads\n"
-            "your profile at the start of every session.\n"
+            "Create a new context vault at ~/context (or --vault PATH), initialise a git\n"
+            "repo, install icontext skills for Claude Code and Cursor, and insert a snippet\n"
+            "into ~/.claude/CLAUDE.md so your agent loads your profile at session start.\n"
             "\n"
-            "Run once, then connect your data sources:\n"
-            "  icontext connect gmail\n"
-            "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
+            "After init, open Claude Code and say:\n"
+            "  \"Populate my icontext profile\"\n"
+            "\n"
+            "No API keys required. Headless `icontext sync` is also available as a fallback\n"
+            "(requires GEMINI_API_KEY)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -584,16 +686,19 @@ def main() -> int:
     # sync
     p_sync = sub.add_parser(
         "sync",
-        help="refresh profile from connected sources",
+        help="optional headless sync (requires GEMINI_API_KEY)",
         description=(
-            "Pull fresh data from connected sources and regenerate the AI profile.\n"
+            "Optional headless fallback for setups where no AI agent is available.\n"
+            "Pulls fresh data from connected sources and regenerates the AI profile\n"
+            "using Gemini. Requires GEMINI_API_KEY.\n"
             "\n"
             "  icontext sync              # sync all configured sources\n"
             "  icontext sync gmail        # sync Gmail only\n"
             "  icontext sync linkedin     # sync LinkedIn only\n"
             "\n"
-            "Writes the updated profile to internal/profile/user.md in your vault.\n"
-            "Claude Code reads this file automatically at each session start."
+            "For most users: open Claude Code and say \"populate my icontext profile\"\n"
+            "instead. The agent uses its own tools (Gmail MCP, browser, PDF) and\n"
+            "writes the same files."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -662,6 +767,28 @@ def main() -> int:
     )
     p_share.set_defaults(func=cmd_share)
     _add_vault_arg(p_share)
+
+    # skills
+    p_skills = sub.add_parser(
+        "skills",
+        help="list or update installed skills",
+        description=(
+            "Manage the icontext skills installed for Claude Code and Cursor.\n"
+            "\n"
+            "  icontext skills list     # show installed skills and target tools\n"
+            "  icontext skills update   # pull latest skill versions from the icontext repo\n"
+            "\n"
+            "Skills are Markdown instructions that your AI agent reads to populate\n"
+            "and refresh your profile. They live at:\n"
+            "  ~/.claude/skills/icontext-*/SKILL.md\n"
+            "  ~/.cursor/rules/icontext-*.mdc"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    skills_sub = p_skills.add_subparsers(dest="skills_action", metavar="ACTION")
+    skills_sub.add_parser("list", help="show installed skills")
+    skills_sub.add_parser("update", help="pull latest skill versions")
+    p_skills.set_defaults(func=cmd_skills)
 
     # doctor
     p_doctor = sub.add_parser(

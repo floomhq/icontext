@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,19 @@ from pathlib import Path
 CLI = str(Path(__file__).resolve().parents[1] / "cli.py")
 
 
+def _safe_env(home: str | None = None) -> dict:
+    """Return an environment with HOME overridden to a temp dir.
+
+    Init writes to ~/.claude/CLAUDE.md and ~/.claude/skills/. Tests must not
+    pollute the real user home.
+    """
+    env = os.environ.copy()
+    if home is not None:
+        env["HOME"] = home
+        env.pop("ICONTEXT_VAULT", None)
+    return env
+
+
 def run(*args: str, vault: str | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     """Run icontext CLI.
 
@@ -18,7 +32,7 @@ def run(*args: str, vault: str | None = None, env: dict | None = None) -> subpro
     and `--vault` is injected right after it (each subparser registers --vault locally).
     For top-level flags (--help, --version): they are passed directly with no --vault.
     """
-    _SUBCOMMANDS = {"init", "status", "connect", "sync", "search", "rebuild", "share", "doctor"}
+    _SUBCOMMANDS = {"init", "status", "connect", "sync", "search", "rebuild", "share", "doctor", "skills"}
     cmd = [sys.executable, CLI]
     if args and args[0] in _SUBCOMMANDS:
         cmd += [args[0]]
@@ -90,10 +104,10 @@ class TestInit(unittest.TestCase):
 
     def test_init_creates_expected_folder_structure(self):
         with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
             vault = Path(tmp) / "my-vault"
-            result = run("init", vault=str(vault))
-            # init may fail if external tools are unavailable; check what was created
-            # At minimum, the directory and subdirs should exist
+            result = run("init", vault=str(vault), env=_safe_env(str(home)))
             output = result.stdout + result.stderr
             self.assertTrue(
                 vault.exists(),
@@ -107,12 +121,78 @@ class TestInit(unittest.TestCase):
 
     def test_init_creates_git_repo(self):
         with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
             vault = Path(tmp) / "git-vault"
-            run("init", vault=str(vault))
+            run("init", vault=str(vault), env=_safe_env(str(home)))
             self.assertTrue(
                 (vault / ".git").exists(),
                 "Expected .git directory after icontext init"
             )
+
+    def test_init_installs_skill_files(self):
+        """Skills should land in ~/.claude/skills/ after init."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "skill-vault"
+            result = run("init", vault=str(vault), env=_safe_env(str(home)))
+            output = result.stdout + result.stderr
+            skills_dir = home / ".claude" / "skills"
+            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+                skill = skills_dir / name / "SKILL.md"
+                self.assertTrue(
+                    skill.exists(),
+                    f"Missing skill {skill}. CLI output: {output!r}"
+                )
+                content = skill.read_text()
+                self.assertIn("---", content, "skill missing frontmatter")
+                self.assertIn("name:", content, "skill missing name")
+
+    def test_init_installs_cursor_rules(self):
+        """Cursor .mdc rules should land in ~/.cursor/rules/."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "cursor-vault"
+            run("init", vault=str(vault), env=_safe_env(str(home)))
+            rules_dir = home / ".cursor" / "rules"
+            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+                self.assertTrue((rules_dir / f"{name}.mdc").exists(),
+                                f"Missing cursor rule {name}.mdc")
+
+    def test_init_writes_claude_md_snippet_referencing_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "claude-vault"
+            run("init", vault=str(vault), env=_safe_env(str(home)))
+            claude_md = home / ".claude" / "CLAUDE.md"
+            self.assertTrue(claude_md.exists(), "CLAUDE.md not created")
+            text = claude_md.read_text()
+            self.assertIn("<!-- icontext -->", text)
+            self.assertIn("icontext-populate-profile", text)
+            self.assertIn("icontext-refresh-profile", text)
+            self.assertIn("icontext-share-card", text)
+            self.assertIn("internal/profile/user.md", text)
+
+    def test_init_does_not_require_gemini_key(self):
+        """Init must succeed with no GEMINI_API_KEY in env."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "no-key-vault"
+            env = _safe_env(str(home))
+            env.pop("GEMINI_API_KEY", None)
+            env.pop("GEMINI_API_KEY_PAID", None)
+            result = run("init", vault=str(vault), env=env)
+            self.assertEqual(result.returncode, 0,
+                             f"init failed without GEMINI_API_KEY. Output: {result.stdout + result.stderr!r}")
+            output = result.stdout + result.stderr
+            # No blocking warnings about Gemini key
+            for bad in ("missing GEMINI_API_KEY", "GEMINI_API_KEY not set", "required for"):
+                self.assertNotIn(bad, output,
+                                 f"init should not block on Gemini key: found {bad!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +233,36 @@ class TestShare(unittest.TestCase):
             "sync" in output.lower() or "connect" in output.lower() or "card" in output.lower(),
             f"Expected helpful guidance in output, got: {output!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# skills
+# ---------------------------------------------------------------------------
+
+class TestSkills(unittest.TestCase):
+
+    def test_skills_list_after_init_shows_three_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "vault"
+            run("init", vault=str(vault), env=_safe_env(str(home)))
+            result = run("skills", "list", env=_safe_env(str(home)))
+            self.assertEqual(result.returncode, 0)
+            output = result.stdout + result.stderr
+            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+                self.assertIn(name, output)
+
+    def test_skills_no_action_defaults_to_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "vault"
+            run("init", vault=str(vault), env=_safe_env(str(home)))
+            result = run("skills", env=_safe_env(str(home)))
+            self.assertEqual(result.returncode, 0)
+            output = result.stdout + result.stderr
+            self.assertIn("icontext-populate-profile", output)
 
 
 # ---------------------------------------------------------------------------

@@ -64,11 +64,6 @@ else
     echo "icontext: CLI linked to $BIN_DIR/icontext"
 fi
 
-# Install Gemini SDK and keyring
-if command -v pip3 &>/dev/null; then
-    pip3 install google-generativeai keyring --quiet 2>/dev/null || true
-fi
-
 # Auto-add ~/.local/bin to PATH in shell profile
 SHELL_RC=""
 if [ -f "$HOME/.zshrc" ]; then
@@ -88,19 +83,12 @@ if [ -n "$SHELL_RC" ]; then
     fi
 fi
 
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-    echo ""
-    echo "  ! GEMINI_API_KEY not set — required for profile synthesis"
-    echo "    Get a free key: https://aistudio.google.com/apikey"
-    echo "    export GEMINI_API_KEY=your_key_here"
-fi
-
 echo ""
-echo "icontext: restart your terminal, then run: icontext init"
+echo "icontext: done."
 echo ""
-echo "  You need a free Gemini API key:"
-echo "  → https://aistudio.google.com/apikey"
-echo "  → export GEMINI_API_KEY=your_key"
-echo "  → add to ~/.zshrc to make it permanent"
+echo "  Next:"
+echo "    1. Restart your terminal (or: source ~/.zshrc)"
+echo "    2. Run: icontext init"
+echo "    3. Open Claude Code and say: \"populate my icontext profile\""
 echo ""
-echo "  Then: icontext init"
+echo "  No API keys needed. Your agent does the synthesis."

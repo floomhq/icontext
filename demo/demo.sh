@@ -14,48 +14,61 @@ pause() { sleep "${1:-0.8}"; }
 
 clear
 
-# === icontext sync ===
+# === icontext init ===
 echo ""
 hr
-echo -e "  ${BOLD}icontext · sync${RESET}"
+echo -e "  ${BOLD}icontext · init${RESET}"
 hr
 echo ""
-pause 0.5
-
-info "gmail"
-printf "    connecting to fede@example.com..."; pause 0.6; echo -e "          ${GREEN}✓${RESET}"
-printf "    scanning 312 messages..."; pause 1.2; echo -e "               ${GREEN}✓${RESET}"
-printf "    synthesizing with Gemini..."; pause 2.0; echo -e "            ${GREEN}✓${RESET}"
-printf "    writing profile..."; pause 0.4; echo -e "                    ${GREEN}✓${RESET}"
-echo ""
-
-info "linkedin"
-printf "    reading Profile.pdf..."; pause 0.5; echo -e "                ${GREEN}✓${RESET}"
-printf "    synthesizing with Gemini..."; pause 1.5; echo -e "            ${GREEN}✓${RESET}"
-printf "    writing profile..."; pause 0.3; echo -e "                    ${GREEN}✓${RESET}"
-echo ""
-
-ok "context card ready"
-hr
-echo -e "  ${GREEN}✓${RESET} done  ~/context/internal/profile/user.md"
-echo ""
-echo "  Open Claude Code and ask:"
-echo '    "What do you know about me?"'
+pause 0.4
+info "creating vault at ~/context"
+pause 0.3
+ok "shareable/   internal/   vault/   ready"
+pause 0.2
+ok "git repo initialised"
+pause 0.2
+ok "3 skill(s) installed (Claude Code + Cursor)"
+pause 0.2
+ok "CLAUDE.md updated — skills wired in"
 hr
 echo ""
+echo "  Next:"
+echo -e "    ${BOLD}open Claude Code${RESET} and ask:"
+echo -e "      ${DIM}\"Populate my icontext profile\"${RESET}"
+echo ""
+pause 1.6
 
-pause 1.5
-
-# === Show what Claude now knows ===
+# === Claude Code session: populate ===
 echo ""
 echo -e "  ${DIM}# Claude Code session${RESET}"
 echo ""
-pause 0.8
+pause 0.5
+echo -e "  ${CYAN}You:${RESET} populate my icontext profile"
+echo ""
+pause 1.2
+echo -e "  ${GREEN}Claude:${RESET} I'll use the icontext-populate-profile skill."
+pause 0.5
+echo ""
+printf "    fetching last 90 days of Gmail metadata via MCP..."; pause 1.2; echo -e " ${GREEN}✓${RESET}"
+printf "    extracting people, projects, topics..."; pause 1.0; echo -e "          ${GREEN}✓${RESET}"
+printf "    validating (need ≥2 messages, drop SaaS senders)..."; pause 0.9; echo -e " ${GREEN}✓${RESET}"
+printf "    writing internal/profile/user.md..."; pause 0.4; echo -e "             ${GREEN}✓${RESET}"
+printf "    writing shareable/profile/context-card.md..."; pause 0.3; echo -e "    ${GREEN}✓${RESET}"
+echo ""
+ok "profile ready · 18 relationships · 4 active projects"
+echo ""
+pause 1.4
+
+# === Fresh session: ask ===
+echo ""
+echo -e "  ${DIM}# new Claude Code session, the next day${RESET}"
+echo ""
+pause 0.5
 echo -e "  ${CYAN}You:${RESET} what do you know about me?"
 echo ""
-pause 2.0
-echo -e "  ${GREEN}Claude:${RESET} Based on your context profile, here's what I know:"
-pause 0.3
+pause 1.5
+echo -e "  ${GREEN}Claude:${RESET} (reading internal/profile/user.md)"
+pause 0.6
 echo ""
 echo "  You're Federico de Ponte — technical founder working on Floom,"
 echo "  an AI app platform. Based at floom.dev. Previously built SCAILE"
