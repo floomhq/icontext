@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/floomhq/icontext/actions/workflows/ci.yml/badge.svg)](https://github.com/floomhq/icontext/actions/workflows/ci.yml)
 
+![icontext demo](demo/icontext-demo.gif)
+
 **Before icontext:** Claude asks "What are you working on?" every session.  
 **After icontext:** Claude already knows your projects, relationships, and context.
 

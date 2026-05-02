@@ -23,3 +23,5 @@ secrets*
 # Demo recordings (large binaries — scripts are committed, recordings are not).
 demo/*.cast
 demo/*.gif
+!demo/icontext-demo.gif
+!demo/icontext-demo.cast
