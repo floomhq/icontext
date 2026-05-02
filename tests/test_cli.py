@@ -62,7 +62,7 @@ class TestHelpAndVersion(unittest.TestCase):
         # argparse sends --version to stdout on some platforms, stderr on others
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0)
-        self.assertIn("0.2.0", output)
+        self.assertRegex(output, r"icontext \d+\.\d+\.\d+")
 
     def test_no_args_exits_1_and_prints_help(self):
         result = run()
