@@ -162,6 +162,21 @@ Optional:
 - `git-lfs` for binary assets (`brew install git-lfs`)
 - `GEMINI_API_KEY` only if you want the headless `icontext sync` fallback
 
+## How icontext compares
+
+Common question: "isn't this just like X?"
+
+| | What it is | How icontext is different |
+|---|---|---|
+| **mem0 / Letta / Zep** | Memory libraries for developers building agents | icontext is for end users; you don't write code to use it |
+| **OpenMemory** | Local CLI + MCP for AI memory | OpenMemory's memory is reactive (built from chat history). icontext is proactive (built from your real data: Gmail, LinkedIn) |
+| **Obsidian** | Knowledge base for humans | Obsidian is for humans writing notes; icontext is for AI agents writing context. Same folder works for both — open ~/context in Obsidian for the human view. |
+| **Pieces.app** | OS-level capture for developers | Pieces captures what you do; icontext synthesizes who you are. Different layer. |
+| **Claude Code's CLAUDE.md** | Per-project AI instructions | CLAUDE.md is per-project. icontext is your *identity* — the same context every project uses. |
+| **Cursor Rules / .cursorrules** | Cursor-specific instructions | icontext works across Claude Code, Cursor, Codex, OpenCode via MCP and shared file conventions. Tool-agnostic. |
+
+The wedge: **icontext is the only tool that proactively builds your professional identity from sources you already own (Gmail, LinkedIn) and exposes it to every AI tool you use.**
+
 ## Status
 
 Production-ready. Run `icontext doctor` to verify your install.
