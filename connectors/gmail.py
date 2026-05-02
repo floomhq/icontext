@@ -225,7 +225,7 @@ def _name_for(addr: str, name_hints: dict[str, str]) -> str:
 
 
 # Local-parts that almost always indicate a forward-to-self address.
-_SELF_LOCAL_HINTS = {"fede", "federico", "fedeponte", "depontefede", "me", "self"}
+_SELF_LOCAL_HINTS = {"me", "self"}
 
 
 def _detect_own_addresses(
@@ -235,7 +235,7 @@ def _detect_own_addresses(
 
     Heuristic: if the user's primary address appears in a sent message's From,
     treat any other To address whose local-part overlaps with the primary's
-    local-part OR matches a known self-hint (fede/federico/...) as an alias.
+    local-part OR matches a known self-hint (me/self/...) as an alias.
     """
     own = {a.lower() for a in primary_addresses if a}
     if not own:
@@ -257,8 +257,8 @@ def _detect_own_addresses(
                 continue
             local = addr_lc.split("@", 1)[0]
             # Match: identical local-part to primary, OR a known self-hint
-            # that overlaps with the primary local-part (so 'fede' on
-            # depontefede matches, but a random 'me@somewhere' doesn't).
+            # that overlaps with the primary local-part (so 'me' on
+            # john.me@example.com matches, but a random 'me@somewhere' doesn't).
             if local in primary_locals:
                 own.add(addr_lc)
                 continue
@@ -938,8 +938,8 @@ def run_pipeline(
     `connector` provides gemini_call_with_retry; tests can pass a mock.
     `all_messages` items must already include 'direction' ('inbox' or 'sent').
     """
-    # Expand own_addresses to catch forwards-to-self (e.g. fede@floom.dev when
-    # the configured account is depontefede@gmail.com). Without this, the user's
+    # Expand own_addresses to catch forwards-to-self (e.g. work@company.com when
+    # the configured account is personal@gmail.com). Without this, the user's
     # own forwarding aliases get treated as external recipients and pollute the
     # relationships table.
     own_addresses = _detect_own_addresses(all_messages, set(own_addresses))

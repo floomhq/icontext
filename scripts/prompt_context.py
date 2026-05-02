@@ -39,7 +39,7 @@ def _int_env(name: str, default: int, minimum: int, maximum: int) -> int:
 
 def main() -> int:
     payload = json.loads(sys.stdin.read() or "{}")
-    repo = Path(os.environ.get("ICONTEXT_VAULT", "/Users/federicodeponte/context"))
+    repo = Path(os.environ.get("ICONTEXT_VAULT", str(Path("~/context").expanduser())))
     max_tier = os.environ.get("ICONTEXT_MAX_TIER", DEFAULT_MAX_TIER).strip().lower() or DEFAULT_MAX_TIER
     char_budget = _int_env("ICONTEXT_PROMPT_CHAR_BUDGET", DEFAULT_CHAR_BUDGET, 0, 6000)
     limit = _int_env("ICONTEXT_PROMPT_LIMIT", DEFAULT_LIMIT, 1, 10)

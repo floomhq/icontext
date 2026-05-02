@@ -614,7 +614,7 @@ class TestRenderProfileMd(unittest.TestCase):
             "pending_items": ["Foreign founder application"],
             "shareable_card": "Federico builds Floom.",
         }
-        md = _render_profile_md(profile, ["Gmail"], 90, ["fede@floom.dev"], "2026-05-02")
+        md = _render_profile_md(profile, ["Gmail"], 90, ["alias@work.example"], "2026-05-02")
         self.assertIn("Identity Summary", md)
         self.assertIn("You are Federico", md)
         self.assertIn("| Cedrik |", md)
@@ -783,19 +783,19 @@ class TestRunPipeline(unittest.TestCase):
 class TestDetectOwnAddresses(unittest.TestCase):
 
     def test_detects_forward_to_self_alias(self):
-        """fede@floom.dev should be flagged as own when sent FROM depontefede."""
+        """user@work.example should be flagged as own when local-part matches primary."""
         from connectors.gmail import _detect_own_addresses
         msgs = [
             {
                 "direction": "sent",
-                "from_addrs": ["depontefede@gmail.com"],
-                "to": ["fede@floom.dev"],
+                "from_addrs": ["user@gmail.com"],
+                "to": ["user@work.example"],
                 "cc": [],
             },
         ]
-        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
-        self.assertIn("fede@floom.dev", own)
-        self.assertIn("depontefede@gmail.com", own)
+        own = _detect_own_addresses(msgs, {"user@gmail.com"})
+        self.assertIn("user@work.example", own)
+        self.assertIn("user@gmail.com", own)
 
     def test_does_not_flag_real_recipients(self):
         """A normal recipient with no name overlap stays external."""
@@ -803,12 +803,12 @@ class TestDetectOwnAddresses(unittest.TestCase):
         msgs = [
             {
                 "direction": "sent",
-                "from_addrs": ["depontefede@gmail.com"],
+                "from_addrs": ["user@gmail.com"],
                 "to": ["cedrik@floom.dev"],
                 "cc": [],
             },
         ]
-        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
+        own = _detect_own_addresses(msgs, {"user@gmail.com"})
         self.assertNotIn("cedrik@floom.dev", own)
 
     def test_ignores_inbox_messages(self):
@@ -818,12 +818,12 @@ class TestDetectOwnAddresses(unittest.TestCase):
             {
                 "direction": "inbox",
                 "from_addrs": ["spoofed@evil.com"],
-                "to": ["fede@floom.dev"],
+                "to": ["alias@work.example"],
                 "cc": [],
             },
         ]
-        own = _detect_own_addresses(msgs, {"depontefede@gmail.com"})
-        self.assertNotIn("fede@floom.dev", own)
+        own = _detect_own_addresses(msgs, {"user@gmail.com"})
+        self.assertNotIn("alias@work.example", own)
 
 
 class TestDedupePending(unittest.TestCase):
@@ -856,7 +856,7 @@ class TestDedupePending(unittest.TestCase):
 class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
 
     def test_self_address_filtered_after_stage_c(self):
-        """If Gemini emits fede@floom.dev as a relationship, the pipeline drops it."""
+        """If Gemini emits alias@work.example as a relationship, the pipeline drops it."""
         from connectors.gmail import run_pipeline
         connector = MagicMock()
         connector.gemini_call_with_retry.side_effect = [
@@ -870,7 +870,7 @@ class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
                 "projects": [],
                 "topics": [],
             },
-            # Stage C — profile (model accidentally surfaces fede@floom.dev)
+            # Stage C — profile (model accidentally surfaces alias@work.example)
             {
                 "identity_summary": "You build Floom.",
                 "key_relationships": [
@@ -878,7 +878,7 @@ class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
                      "company": "Floom", "role": "Co-founder",
                      "frequency": "weekly", "warmth": "hot",
                      "context": "Daily collab"},
-                    {"name": "fede@floom.dev", "email": "fede@floom.dev",
+                    {"name": "alias@work.example", "email": "alias@work.example",
                      "company": "floom.dev", "role": "Self forward",
                      "frequency": "monthly", "warmth": "hot",
                      "context": "Self-forward alias"},
@@ -899,8 +899,8 @@ class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
                 "subject": "Forward",
                 "from_addrs": ["me@example.com"],
                 "from_pairs": [("Me", "me@example.com")],
-                "to": ["fede@me.com"],   # alias (same local-part 'me')
-                "to_pairs": [("Me alias", "fede@me.com")],
+                "to": ["me@alias.example"],   # alias (same local-part 'me')
+                "to_pairs": [("Me alias", "me@alias.example")],
                 "cc": [], "cc_pairs": [],
                 "date": "Mon, 01 Apr 2024 12:00:00 +0000",
             },
@@ -925,7 +925,7 @@ class TestPipelineDropsOwnAddressesFromRelationships(unittest.TestCase):
                 "date": "Mon, 02 Apr 2024 12:00:00 +0000",
             },
         ]
-        # Note: we pass fede@floom.dev as a relationship that Gemini hallucinated
+        # Note: we pass alias@work.example as a relationship that Gemini hallucinated
         # in Stage C even though the detection set covers a different alias —
         # the post-Stage-C filter still drops anything in own_addresses.
         facts, validated, profile = run_pipeline(

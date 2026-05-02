@@ -178,7 +178,7 @@ class Server:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default="/Users/federicodeponte/context")
+    parser.add_argument("--repo", default=str(Path("~/context").expanduser()))
     args = parser.parse_args()
     server = Server(Path(args.repo).expanduser().resolve())
 
