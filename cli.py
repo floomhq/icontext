@@ -796,6 +796,24 @@ def _autosync_start_macos(vault: Path) -> int:
     return 0
 
 
+def _systemctl_user_env() -> dict:
+    """Return os.environ + XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS so systemctl
+    --user works in headless SSH sessions where the user's bus is set up via
+    `loginctl enable-linger`. No-op if already set in env."""
+    env = os.environ.copy()
+    if "XDG_RUNTIME_DIR" not in env:
+        uid = os.getuid()
+        runtime_dir = f"/run/user/{uid}"
+        if Path(runtime_dir).is_dir():
+            env["XDG_RUNTIME_DIR"] = runtime_dir
+    if "DBUS_SESSION_BUS_ADDRESS" not in env:
+        runtime_dir = env.get("XDG_RUNTIME_DIR", "")
+        bus_path = f"{runtime_dir}/bus" if runtime_dir else ""
+        if bus_path and Path(bus_path).exists():
+            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus_path}"
+    return env
+
+
 def _autosync_start_linux(vault: Path) -> int:
     unit_dir = _systemd_unit_dir()
     unit_dir.mkdir(parents=True, exist_ok=True)
@@ -828,18 +846,25 @@ WantedBy=timers.target
     _print(_ok(f"wrote {service_path}"))
     _print(_ok(f"wrote {timer_path}"))
 
+    sysenv = _systemctl_user_env()
+
     # systemctl --user daemon-reload + enable --now
-    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, env=sysenv)
     enable = subprocess.run(
         ["systemctl", "--user", "enable", "--now", SYSTEMD_TIMER],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=sysenv,
     )
     if enable.returncode != 0:
         err = (enable.stderr or enable.stdout).strip()
         _print(_err(f"systemctl enable failed: {err}"))
         if "Failed to connect to bus" in err or "no medium" in err.lower():
-            _print(_warn("systemd --user not available in this environment"))
-            _print(_info("alternative: run a cron job, or invoke 'icontext push' manually"))
+            _print(_warn("systemd --user not reachable from this shell"))
+            _print(_info("If you are in a headless SSH session, ensure linger is enabled:"))
+            _print("    loginctl enable-linger $(whoami)")
+            _print(_info("Then re-run with the user bus exported:"))
+            _print('    XDG_RUNTIME_DIR=/run/user/$(id -u) \\')
+            _print('    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus \\')
+            _print('    icontext autosync start --vault ' + str(vault))
         return 1
     _print(_ok(f"timer enabled ({SYSTEMD_TIMER}; runs every 60s)"))
     return 0
@@ -862,15 +887,16 @@ def _autosync_stop_linux() -> int:
     if not timer_path.exists() and not service_path.exists():
         _print(_warn("autosync not configured (no unit files)"))
         return 0
+    sysenv = _systemctl_user_env()
     subprocess.run(
         ["systemctl", "--user", "disable", "--now", SYSTEMD_TIMER],
-        capture_output=True,
+        capture_output=True, env=sysenv,
     )
     for p in (timer_path, service_path):
         if p.exists():
             p.unlink()
             _print(_ok(f"removed {p}"))
-    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, env=sysenv)
     return 0
 
 
@@ -903,9 +929,10 @@ def _autosync_status_linux() -> int:
     if not timer_path.exists():
         _print(_c(C.DIM, "  status:    not running (no timer installed)"))
         return 0
+    sysenv = _systemctl_user_env()
     is_active = subprocess.run(
         ["systemctl", "--user", "is-active", SYSTEMD_TIMER],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=sysenv,
     )
     state = is_active.stdout.strip() or is_active.stderr.strip()
     if state == "active":
@@ -916,7 +943,7 @@ def _autosync_status_linux() -> int:
     show = subprocess.run(
         ["systemctl", "--user", "show", SYSTEMD_SERVICE,
          "--property=ExecMainExitTimestamp", "--property=Result"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=sysenv,
     )
     for line in show.stdout.splitlines():
         if line.strip():
