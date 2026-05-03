@@ -4,6 +4,22 @@ All notable changes to iContext will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-05-02
+
+### Added
+- **Multi-device sync.** Your vault now follows you across machines via a private git remote.
+  - `icontext push` — commit and push local changes to origin
+  - `icontext pull` — rebase against origin with autostash (last-writer-wins, surfaces conflicts)
+  - `icontext autosync start|stop|status` — background agent that runs `icontext push` every 60 seconds
+    - macOS: `launchd` at `~/Library/LaunchAgents/dev.icontext.autosync.plist`
+    - Linux: `systemd --user` timer at `~/.config/systemd/user/icontext-autosync.timer`
+- `user-prompt-submit` hook now pulls from origin in the background if a remote is configured, so Claude Code sees fresh context from other machines at the start of every prompt.
+- CLAUDE.md snippet references the multi-device sync workflow.
+- Tests for `push`, `pull`, and `autosync` (--help, no-origin hint, status reports not running on clean home).
+
+### Changed
+- Bumped version to 0.3.0.
+
 ## [0.2.1] - 2026-05-02
 
 ### Fixed

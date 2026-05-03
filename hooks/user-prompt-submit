@@ -46,6 +46,23 @@ if profile_path.exists() and icontext_bin and connectors_cfg.exists():
             )
 
 # ---------------------------------------------------------------------------
+# Multi-device sync: if vault has an origin remote, pull in the background
+# so the agent sees fresh content from other machines. Non-blocking.
+# ---------------------------------------------------------------------------
+if icontext_bin and (repo / ".git").exists():
+    has_origin = subprocess.run(
+        ["git", "-C", str(repo), "remote", "get-url", "origin"],
+        capture_output=True, text=True,
+    )
+    if has_origin.returncode == 0 and has_origin.stdout.strip():
+        subprocess.Popen(
+            [icontext_bin, "pull", "--vault", str(repo)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+# ---------------------------------------------------------------------------
 # Context injection: delegate to prompt_context.py
 # ---------------------------------------------------------------------------
 prompt_context = ICONTEXT_ROOT / "scripts" / "prompt_context.py"

@@ -32,7 +32,7 @@ def run(*args: str, vault: str | None = None, env: dict | None = None) -> subpro
     and `--vault` is injected right after it (each subparser registers --vault locally).
     For top-level flags (--help, --version): they are passed directly with no --vault.
     """
-    _SUBCOMMANDS = {"init", "status", "connect", "sync", "search", "rebuild", "share", "doctor", "skills"}
+    _SUBCOMMANDS = {"init", "status", "connect", "sync", "search", "rebuild", "share", "doctor", "skills", "push", "pull", "autosync"}
     cmd = [sys.executable, CLI]
     if args and args[0] in _SUBCOMMANDS:
         cmd += [args[0]]
@@ -294,6 +294,114 @@ class TestDoctor(unittest.TestCase):
             "pass", output.lower(),
             f"Expected 'pass' in doctor summary. Output: {output!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# push / pull / autosync (multi-device sync)
+# ---------------------------------------------------------------------------
+
+def _make_git_vault(path: Path) -> None:
+    """Create a minimal git repo at path with one initial commit."""
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@local"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "test"], check=True)
+    (path / "README.md").write_text("test vault\n")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-q", "-m", "init"], check=True)
+
+
+class TestPush(unittest.TestCase):
+
+    def test_push_help_exits_0(self):
+        result = run("push", "--help")
+        self.assertEqual(result.returncode, 0)
+        output = result.stdout + result.stderr
+        self.assertIn("push", output.lower())
+
+    def test_push_nonexistent_vault_exits_1(self):
+        result = run("push", vault="/nonexistent/path/push_xyz")
+        self.assertEqual(result.returncode, 1)
+        output = result.stdout + result.stderr
+        self.assertTrue(
+            "not found" in output.lower() or "init" in output.lower(),
+            f"Expected helpful message, got: {output!r}"
+        )
+
+    def test_push_no_origin_exits_1_with_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "no-origin-vault"
+            _make_git_vault(vault)
+            result = run("push", vault=str(vault))
+        self.assertEqual(result.returncode, 1)
+        output = result.stdout + result.stderr
+        self.assertTrue(
+            "origin" in output.lower() and ("gh repo create" in output.lower() or "remote" in output.lower()),
+            f"Expected gh repo create hint, got: {output!r}"
+        )
+
+
+class TestPull(unittest.TestCase):
+
+    def test_pull_help_exits_0(self):
+        result = run("pull", "--help")
+        self.assertEqual(result.returncode, 0)
+        output = result.stdout + result.stderr
+        self.assertIn("pull", output.lower())
+
+    def test_pull_no_origin_exits_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "no-origin-pull-vault"
+            _make_git_vault(vault)
+            result = run("pull", vault=str(vault))
+        self.assertEqual(result.returncode, 1)
+        output = result.stdout + result.stderr
+        self.assertTrue(
+            "origin" in output.lower(),
+            f"Expected origin hint, got: {output!r}"
+        )
+
+    def test_pull_non_git_vault_exits_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "plain-vault"
+            vault.mkdir()
+            result = run("pull", vault=str(vault))
+        self.assertEqual(result.returncode, 1)
+
+
+class TestAutosync(unittest.TestCase):
+
+    def test_autosync_help_exits_0(self):
+        result = run("autosync", "--help")
+        self.assertEqual(result.returncode, 0)
+        output = result.stdout + result.stderr
+        self.assertIn("autosync", output.lower())
+        # all three actions referenced
+        for action in ("start", "stop", "status"):
+            self.assertIn(action, output.lower())
+
+    def test_autosync_no_action_exits_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            vault.mkdir()
+            result = run("autosync", vault=str(vault))
+        self.assertEqual(result.returncode, 1)
+
+    def test_autosync_status_in_clean_home_reports_not_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            vault = Path(tmp) / "vault"
+            vault.mkdir()
+            result = run("autosync", "status", vault=str(vault), env=_safe_env(str(home)))
+            output = result.stdout + result.stderr
+            # Status should exit 0 (informational), and report not running OR not active
+            self.assertEqual(result.returncode, 0,
+                             f"autosync status crashed: {output!r}")
+            self.assertTrue(
+                "not running" in output.lower() or "not installed" in output.lower() or "no timer" in output.lower() or "no plist" in output.lower(),
+                f"Expected 'not running' state, got: {output!r}"
+            )
 
 
 if __name__ == "__main__":

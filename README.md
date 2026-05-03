@@ -226,6 +226,50 @@ Optional:
 - `git-lfs` for binary assets (`brew install git-lfs`)
 - `GEMINI_API_KEY` only if you want the headless `icontext sync` fallback
 
+## Multi-device sync
+
+Same vault, every machine. iContext uses git on a private repo as the sync layer — no extra service, no daemon talking to a vendor.
+
+### Setup (3 steps)
+
+On your **primary machine**, push the vault to a private repo:
+
+```bash
+cd ~/context
+gh repo create <user>/context --private --source=. --push
+icontext autosync start          # commits + pushes every 60s
+```
+
+On every **other machine**, clone and start autosync:
+
+```bash
+gh repo clone <user>/context ~/context
+icontext autosync start
+```
+
+That's it. Edits made on machine A appear on machine B within ~60s of the next prompt (the `user-prompt-submit` hook also pulls in the background whenever you start a Claude Code prompt).
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `icontext push` | Commit local changes and push to origin |
+| `icontext pull` | Rebase against origin (autostashes in-flight changes) |
+| `icontext autosync start` | Install + start the 60s background agent |
+| `icontext autosync stop` | Stop and remove the agent |
+| `icontext autosync status` | Show running state and last sync time |
+
+### Conflict handling
+
+`icontext pull` runs `git pull --rebase --autostash`. Last writer wins. If two machines edit the same lines of the same file in the same minute, the rebase surfaces the conflict and prints the file paths — resolve manually with normal git tooling.
+
+In practice, conflicts are rare: profile files are append-mostly, and the 60s push window is shorter than typical edit cycles.
+
+### Implementation
+
+- macOS: `launchd` agent at `~/Library/LaunchAgents/dev.icontext.autosync.plist`. Logs at `~/Library/Logs/icontext.log`.
+- Linux: `systemd --user` timer at `~/.config/systemd/user/icontext-autosync.timer`. Logs via `journalctl --user -u icontext-autosync.service`.
+
 ## How icontext compares
 
 Common question: "isn't this just like X?"

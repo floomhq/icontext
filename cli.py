@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +450,10 @@ def _install_claude_md_snippet(vault: Path) -> None:
         "Available skills:\n"
         "- icontext-populate-profile  (build profile from Gmail/LinkedIn/chat)\n"
         "- icontext-refresh-profile   (update stale profile)\n"
-        "- icontext-share-card        (regenerate shareable summary)\n"
+        "- icontext-share-card        (regenerate shareable summary)\n\n"
+        "Multi-device sync: at session start, run `icontext pull` to fetch any updates\n"
+        "from other machines. The user-prompt-submit hook does this automatically if a\n"
+        "remote is configured.\n"
         "<!-- /icontext -->"
     )
 
@@ -554,6 +557,398 @@ def cmd_skills(args: argparse.Namespace) -> int:
         return 0 if count > 0 else 1
 
     _print(_err(f"unknown skills action: {action}"))
+    return 1
+
+
+def _git_has_origin(vault: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(vault), "remote", "get-url", "origin"],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _gh_repo_create_hint() -> str:
+    return (
+        "First time? Set up a private remote:\n"
+        "    cd <vault> && gh repo create <user>/context --private --source=. --push\n"
+        "  or, if you already have a repo:\n"
+        "    cd <vault> && git remote add origin git@github.com:<user>/context.git && git push -u origin main"
+    )
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    vault = _resolve_vault(args.vault)
+    if not vault.exists():
+        _print(_err(f"Vault not found: {vault}"))
+        return 1
+    if not (vault / ".git").exists():
+        _print(_err(f"Vault is not a git repo: {vault}"))
+        _print(_info("Run 'icontext init' first."))
+        return 1
+
+    _header("push")
+    _print("")
+
+    # Stage all
+    subprocess.run(
+        ["git", "-C", str(vault), "add", "-A"],
+        check=False, capture_output=True,
+    )
+
+    # Check if anything is staged or already-committed-but-not-pushed
+    status = subprocess.run(
+        ["git", "-C", str(vault), "status", "--porcelain"],
+        capture_output=True, text=True,
+    )
+    changed_lines = [ln for ln in status.stdout.splitlines() if ln.strip()]
+    n_changed = len(changed_lines)
+
+    if n_changed > 0:
+        # Commit
+        from datetime import datetime
+        msg = f"icontext: sync {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        commit = subprocess.run(
+            ["git", "-C", str(vault), "commit", "-m", msg],
+            capture_output=True, text=True,
+        )
+        if commit.returncode != 0:
+            _print(_warn(f"commit failed: {commit.stderr.strip() or commit.stdout.strip()}"))
+        else:
+            _print(_ok(f"committed: {msg} ({n_changed} file(s) changed)"))
+    else:
+        _print(_info("no local changes to commit"))
+
+    # Push
+    if not _git_has_origin(vault):
+        _print("")
+        _print(_warn("no 'origin' remote configured"))
+        _print("")
+        for line in _gh_repo_create_hint().splitlines():
+            _print(f"  {line}")
+        _print("")
+        return 1
+
+    push = subprocess.run(
+        ["git", "-C", str(vault), "push"],
+        capture_output=True, text=True,
+    )
+    if push.returncode != 0:
+        err = (push.stderr or push.stdout).strip()
+        _print(_err(f"push failed: {err}"))
+        if "no upstream" in err.lower() or "set-upstream" in err.lower():
+            _print(_info("retrying with --set-upstream origin main..."))
+            push2 = subprocess.run(
+                ["git", "-C", str(vault), "push", "--set-upstream", "origin", "HEAD"],
+                capture_output=True, text=True,
+            )
+            if push2.returncode != 0:
+                _print(_err((push2.stderr or push2.stdout).strip()))
+                return 1
+            _print(_ok("pushed (upstream set)"))
+            return 0
+        return 1
+
+    _print(_ok(f"pushed to origin"))
+    if push.stdout.strip():
+        for line in push.stdout.strip().splitlines()[:3]:
+            _print(_c(C.DIM, f"    {line}"))
+    if push.stderr.strip():
+        for line in push.stderr.strip().splitlines()[:3]:
+            _print(_c(C.DIM, f"    {line}"))
+    return 0
+
+
+def cmd_pull(args: argparse.Namespace) -> int:
+    vault = _resolve_vault(args.vault)
+    if not vault.exists():
+        _print(_err(f"Vault not found: {vault}"))
+        return 1
+    if not (vault / ".git").exists():
+        _print(_err(f"Vault is not a git repo: {vault}"))
+        return 1
+
+    _header("pull")
+    _print("")
+
+    if not _git_has_origin(vault):
+        _print(_warn("no 'origin' remote configured — nothing to pull"))
+        _print("")
+        for line in _gh_repo_create_hint().splitlines():
+            _print(f"  {line}")
+        _print("")
+        return 1
+
+    pull = subprocess.run(
+        ["git", "-C", str(vault), "pull", "--rebase", "--autostash"],
+        capture_output=True, text=True,
+    )
+    out = (pull.stdout + pull.stderr).strip()
+    if pull.returncode != 0:
+        _print(_err("pull failed"))
+        for line in out.splitlines()[:10]:
+            _print(f"    {line}")
+        if "conflict" in out.lower() or "CONFLICT" in out:
+            _print("")
+            _print(_warn("merge conflict — resolve manually:"))
+            _print(f"    cd {vault}")
+            _print("    git status              # see conflicted files")
+            _print("    # edit files to resolve")
+            _print("    git add <files>")
+            _print("    git rebase --continue")
+        return 1
+
+    if "Already up to date" in out or "up-to-date" in out.lower():
+        _print(_ok("already up to date"))
+    else:
+        _print(_ok("pulled latest from origin"))
+        for line in out.splitlines()[:6]:
+            _print(_c(C.DIM, f"    {line}"))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# autosync
+# ---------------------------------------------------------------------------
+
+LAUNCHD_LABEL = "dev.icontext.autosync"
+SYSTEMD_SERVICE = "icontext-autosync.service"
+SYSTEMD_TIMER = "icontext-autosync.timer"
+
+
+def _launchd_plist_path() -> Path:
+    return Path("~/Library/LaunchAgents/dev.icontext.autosync.plist").expanduser()
+
+
+def _launchd_log_path() -> Path:
+    return Path("~/Library/Logs/icontext.log").expanduser()
+
+
+def _systemd_unit_dir() -> Path:
+    return Path("~/.config/systemd/user").expanduser()
+
+
+def _icontext_bin() -> str:
+    """Best-effort path to the icontext executable for use in service files."""
+    import shutil as _sh
+    found = _sh.which("icontext")
+    if found:
+        return found
+    # Fall back to invoking cli.py directly via the current python
+    return f"{sys.executable} {Path(__file__).resolve()}"
+
+
+def _autosync_start_macos(vault: Path) -> int:
+    plist = _launchd_plist_path()
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    log_path = _launchd_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    icontext = _icontext_bin()
+    # icontext might be "<python> <path>/cli.py"; split it.
+    program_args_xml = ""
+    parts = icontext.split()
+    for part in parts:
+        program_args_xml += f"        <string>{part}</string>\n"
+    program_args_xml += "        <string>push</string>\n"
+    program_args_xml += "        <string>--vault</string>\n"
+    program_args_xml += f"        <string>{vault}</string>\n"
+
+    plist_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LAUNCHD_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+{program_args_xml.rstrip()}
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>KeepAlive</key>
+    <false/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_path}</string>
+    <key>StandardErrorPath</key>
+    <string>{log_path}</string>
+</dict>
+</plist>
+"""
+    plist.write_text(plist_xml)
+    _print(_ok(f"wrote {plist}"))
+
+    # Unload first if already loaded (idempotent), then load
+    subprocess.run(
+        ["launchctl", "unload", str(plist)],
+        capture_output=True,
+    )
+    load = subprocess.run(
+        ["launchctl", "load", str(plist)],
+        capture_output=True, text=True,
+    )
+    if load.returncode != 0:
+        _print(_err(f"launchctl load failed: {(load.stderr or load.stdout).strip()}"))
+        return 1
+    _print(_ok(f"launchd agent loaded ({LAUNCHD_LABEL})"))
+    _print(_info(f"runs every 60s; logs at {log_path}"))
+    return 0
+
+
+def _autosync_start_linux(vault: Path) -> int:
+    unit_dir = _systemd_unit_dir()
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    icontext = _icontext_bin()
+    service_path = unit_dir / SYSTEMD_SERVICE
+    timer_path = unit_dir / SYSTEMD_TIMER
+
+    service_path.write_text(
+        f"""[Unit]
+Description=iContext autosync (push vault to origin)
+
+[Service]
+Type=oneshot
+ExecStart={icontext} push --vault {vault}
+"""
+    )
+    timer_path.write_text(
+        f"""[Unit]
+Description=iContext autosync timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+Unit={SYSTEMD_SERVICE}
+
+[Install]
+WantedBy=timers.target
+"""
+    )
+    _print(_ok(f"wrote {service_path}"))
+    _print(_ok(f"wrote {timer_path}"))
+
+    # systemctl --user daemon-reload + enable --now
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    enable = subprocess.run(
+        ["systemctl", "--user", "enable", "--now", SYSTEMD_TIMER],
+        capture_output=True, text=True,
+    )
+    if enable.returncode != 0:
+        err = (enable.stderr or enable.stdout).strip()
+        _print(_err(f"systemctl enable failed: {err}"))
+        if "Failed to connect to bus" in err or "no medium" in err.lower():
+            _print(_warn("systemd --user not available in this environment"))
+            _print(_info("alternative: run a cron job, or invoke 'icontext push' manually"))
+        return 1
+    _print(_ok(f"timer enabled ({SYSTEMD_TIMER}; runs every 60s)"))
+    return 0
+
+
+def _autosync_stop_macos() -> int:
+    plist = _launchd_plist_path()
+    if not plist.exists():
+        _print(_warn("autosync not configured (no plist)"))
+        return 0
+    subprocess.run(["launchctl", "unload", str(plist)], capture_output=True)
+    plist.unlink()
+    _print(_ok(f"unloaded and removed {plist}"))
+    return 0
+
+
+def _autosync_stop_linux() -> int:
+    timer_path = _systemd_unit_dir() / SYSTEMD_TIMER
+    service_path = _systemd_unit_dir() / SYSTEMD_SERVICE
+    if not timer_path.exists() and not service_path.exists():
+        _print(_warn("autosync not configured (no unit files)"))
+        return 0
+    subprocess.run(
+        ["systemctl", "--user", "disable", "--now", SYSTEMD_TIMER],
+        capture_output=True,
+    )
+    for p in (timer_path, service_path):
+        if p.exists():
+            p.unlink()
+            _print(_ok(f"removed {p}"))
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    return 0
+
+
+def _autosync_status_macos() -> int:
+    plist = _launchd_plist_path()
+    log_path = _launchd_log_path()
+    if not plist.exists():
+        _print(_c(C.DIM, "  status:    not running (no plist installed)"))
+        return 0
+    list_out = subprocess.run(
+        ["launchctl", "list", LAUNCHD_LABEL],
+        capture_output=True, text=True,
+    )
+    if list_out.returncode == 0:
+        _print(_ok(f"status:    running ({LAUNCHD_LABEL})"))
+    else:
+        _print(_warn(f"status:    plist installed but not loaded — run 'icontext autosync start'"))
+    if log_path.exists():
+        mtime = log_path.stat().st_mtime
+        from datetime import datetime
+        last = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        _print(_info(f"last log:  {last}  ({log_path})"))
+    else:
+        _print(_c(C.DIM, "  last log:  no log file yet"))
+    return 0
+
+
+def _autosync_status_linux() -> int:
+    timer_path = _systemd_unit_dir() / SYSTEMD_TIMER
+    if not timer_path.exists():
+        _print(_c(C.DIM, "  status:    not running (no timer installed)"))
+        return 0
+    is_active = subprocess.run(
+        ["systemctl", "--user", "is-active", SYSTEMD_TIMER],
+        capture_output=True, text=True,
+    )
+    state = is_active.stdout.strip() or is_active.stderr.strip()
+    if state == "active":
+        _print(_ok(f"status:    active ({SYSTEMD_TIMER})"))
+    else:
+        _print(_warn(f"status:    {state}"))
+    # Last run time
+    show = subprocess.run(
+        ["systemctl", "--user", "show", SYSTEMD_SERVICE,
+         "--property=ExecMainExitTimestamp", "--property=Result"],
+        capture_output=True, text=True,
+    )
+    for line in show.stdout.splitlines():
+        if line.strip():
+            _print(_info(line.strip()))
+    return 0
+
+
+def cmd_autosync(args: argparse.Namespace) -> int:
+    import platform
+    action = getattr(args, "autosync_action", None)
+    if not action:
+        _print(_err("autosync requires an action: start | stop | status"))
+        return 1
+
+    is_mac = platform.system() == "Darwin"
+    _header(f"autosync · {action}")
+    _print("")
+
+    if action == "start":
+        vault = _resolve_vault(args.vault)
+        if not vault.exists():
+            _print(_err(f"Vault not found: {vault}"))
+            return 1
+        return _autosync_start_macos(vault) if is_mac else _autosync_start_linux(vault)
+
+    if action == "stop":
+        return _autosync_stop_macos() if is_mac else _autosync_stop_linux()
+
+    if action == "status":
+        return _autosync_status_macos() if is_mac else _autosync_status_linux()
+
+    _print(_err(f"unknown autosync action: {action}"))
     return 1
 
 
@@ -791,6 +1186,64 @@ def main() -> int:
     skills_sub.add_parser("list", help="show installed skills")
     skills_sub.add_parser("update", help="pull latest skill versions")
     p_skills.set_defaults(func=cmd_skills)
+
+    # push
+    p_push = sub.add_parser(
+        "push",
+        help="commit and push the vault to its origin remote",
+        description=(
+            "Stage and commit any local changes in the vault, then push to origin.\n"
+            "\n"
+            "Used for multi-device sync: run on device A, then 'icontext pull' on device B.\n"
+            "If no origin remote is configured, prints setup instructions for\n"
+            "'gh repo create <user>/context --private --source=. --push'."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_push.set_defaults(func=cmd_push)
+    _add_vault_arg(p_push)
+
+    # pull
+    p_pull = sub.add_parser(
+        "pull",
+        help="pull updates from origin (rebase + autostash)",
+        description=(
+            "Fetch and rebase the vault against origin/<current>. Local in-flight\n"
+            "changes are autostashed and re-applied. On conflict, surfaces the\n"
+            "files and instructs you to resolve manually."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_pull.set_defaults(func=cmd_pull)
+    _add_vault_arg(p_pull)
+
+    # autosync
+    p_autosync = sub.add_parser(
+        "autosync",
+        help="manage the background autosync agent (60s push)",
+        description=(
+            "Manage a background agent that runs 'icontext push' every 60 seconds.\n"
+            "\n"
+            "  icontext autosync start    # install + start the agent\n"
+            "  icontext autosync stop     # stop and remove the agent\n"
+            "  icontext autosync status   # show running state and last sync time\n"
+            "\n"
+            "Implementation: launchd on macOS (~/Library/LaunchAgents/), systemd user\n"
+            "timer on Linux (~/.config/systemd/user/). Logs:\n"
+            "  macOS: ~/Library/Logs/icontext.log\n"
+            "  Linux: journalctl --user -u icontext-autosync.service"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    autosync_sub = p_autosync.add_subparsers(dest="autosync_action", metavar="ACTION")
+    p_autosync_start = autosync_sub.add_parser("start", help="install and start the agent")
+    _add_vault_arg(p_autosync_start)
+    p_autosync_stop = autosync_sub.add_parser("stop", help="stop and remove the agent")
+    _add_vault_arg(p_autosync_stop)
+    p_autosync_status = autosync_sub.add_parser("status", help="show agent state and last sync")
+    _add_vault_arg(p_autosync_status)
+    p_autosync.set_defaults(func=cmd_autosync)
+    _add_vault_arg(p_autosync)
 
     # doctor
     p_doctor = sub.add_parser(
