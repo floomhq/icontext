@@ -163,6 +163,14 @@ If `internal/profile/user.md` exists:
 - If 7-30 days old: ask the user "your profile is N days old, refresh?"
 - If >30 days old: refresh automatically.
 
+## Saving facts that surface during synthesis
+
+If during synthesis you encounter a durable fact that doesn't belong in the
+profile (e.g. the user mentions their company's Delaware registration, an
+attorney contact, a funding round closing date), use the `icontext-write-fact`
+skill to route it to the correct vault location. Do not dump it into the
+profile files or a log file.
+
 ## Output
 
 After writing, summarize for the user:

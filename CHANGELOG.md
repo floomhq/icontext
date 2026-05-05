@@ -4,6 +4,18 @@ All notable changes to iContext will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-05-04
+
+### Added
+- **`icontext-write-fact` skill.** Explicit decision tree that routes content to the correct vault location before writing. Covers six categories: legal/entity facts (`vault/legal/`), project facts (`vault/projects/`), team/people (`vault/team/`), strategy (`vault/strategy/`), secretarial activity (`vault/secretary/logs/`), and credentials. Includes a full top-level vault directory reference so agents can match against the real structure without guessing. Eliminates the recurring "agent dumps legal facts in log files" failure mode.
+- `icontext-populate-profile` now references `icontext-write-fact` for any durable facts surfaced during profile synthesis (e.g. company registrations, attorney contacts, funding dates).
+- `icontext-write-fact` ships with `icontext init` — installed to `~/.claude/skills/` and `~/.cursor/rules/` alongside the existing three skills.
+- CLAUDE.md snippet updated to list all four skills.
+- Tests for the new skill: frontmatter, decision tree category coverage, init installation, Cursor rule, skills-list count, and CLAUDE.md reference.
+
+### Changed
+- Bumped version to 0.4.0.
+
 ## [0.3.0] - 2026-05-02
 
 ### Added

@@ -4,7 +4,7 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "icontext"
-version = "0.3.0"
+version = "0.4.0"
 description = "Persistent memory for AI coding tools — local, encrypted, built from your real data."
 readme = "README.md"
 license = {text = "MIT"}
