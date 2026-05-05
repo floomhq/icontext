@@ -1,4 +1,4 @@
-"""Base connector interface for icontext data sources."""
+"""Base connector interface for fbrain data sources."""
 from __future__ import annotations
 
 import json
@@ -78,7 +78,7 @@ class BaseConnector(ABC):
         out.write_text(content)
 
     def commit_profiles(self, vault: Path) -> None:
-        """Stage and commit all icontext changes in a single atomic commit."""
+        """Stage and commit all fbrain changes in a single atomic commit."""
         try:
             subprocess.run(
                 ["git", "-C", str(vault), "add", "-A"],
@@ -86,7 +86,7 @@ class BaseConnector(ABC):
             )
             result = subprocess.run(
                 ["git", "-C", str(vault), "commit", "-m",
-                 f"icontext: sync {self.name} {datetime.now(UTC).strftime('%Y-%m-%d')}"],
+                 f"fbrain: sync {self.name} {datetime.now(UTC).strftime('%Y-%m-%d')}"],
                 capture_output=True, text=True,
             )
             # Exit 1 with "nothing to commit" is acceptable; surface other errors.
@@ -111,7 +111,7 @@ class BaseConnector(ABC):
                 "  2. Export it in your current shell:\n"
                 "       export GEMINI_API_KEY=your_key_here\n"
                 "  3. Make it permanent — add that line to ~/.zshrc or ~/.bashrc,\n"
-                "     then open a new terminal and re-run: icontext sync"
+                "     then open a new terminal and re-run: fbrain sync"
             )
         try:
             import google.generativeai as genai
@@ -119,7 +119,7 @@ class BaseConnector(ABC):
             raise RuntimeError(
                 "google-generativeai is not installed.\n"
                 "  Run: pip install google-generativeai\n"
-                "  Then re-run: icontext sync"
+                "  Then re-run: fbrain sync"
             )
         genai.configure(api_key=api_key)
         return genai
@@ -128,7 +128,7 @@ class BaseConnector(ABC):
         """Free-form Gemini call. Used for shareable card and legacy paths."""
         genai = self._gemini_configure()
         print("    synthesizing with Gemini...", end="", flush=True)
-        model_name = os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
+        model_name = os.environ.get("FBRAIN_GEMINI_MODEL") or os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         print(" ✓")
@@ -142,7 +142,7 @@ class BaseConnector(ABC):
     def gemini_json(self, prompt: str, schema: dict) -> dict:
         """JSON-mode Gemini call with a typed schema. Returns parsed dict."""
         genai = self._gemini_configure()
-        model_name = os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
+        model_name = os.environ.get("FBRAIN_GEMINI_MODEL") or os.environ.get("ICONTEXT_GEMINI_MODEL", "gemini-2.5-flash-lite")
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(
             prompt,

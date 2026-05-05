@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update the local icontext search index."""
+"""Update the local fbrain search index."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def main() -> int:
     args = parser.parse_args()
 
     indexed = rebuild(args.repo)
-    print(f"icontext: indexed {indexed} text file(s)")
+    print(f"fbrain: indexed {indexed} text file(s)")
     return 0
 
 

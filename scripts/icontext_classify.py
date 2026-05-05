@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rule-based sensitivity classifier for icontext.
+"""Rule-based sensitivity classifier for fbrain.
 
 The classifier is intentionally deterministic. It is the local safety net used
 by hooks and CI; LLM review can be layered on top later without making pushes

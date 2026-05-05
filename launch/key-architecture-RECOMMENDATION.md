@@ -17,7 +17,7 @@ Keep `git-crypt`. Export the symmetric key, store it as a secure file attachment
 3. Confirm 1Password account hardening: Secret Key on file, hardware security key (YubiKey) registered for account auth, recovery code stored offline, trusted devices reviewed.
 4. Run a recovery drill: clone the repo into a temp dir, restore the key from 1Password, run `git-crypt unlock`, confirm `git-crypt status -e` shows decrypted content and `git status --short` is clean.
 5. Delete the loose key file from `$HOME` after the drill.
-6. On AX41: run the sparse-checkout + tripwire commands so `vault/` cannot be committed locally. Confirm AX41's GitHub credential for the icontext repo is read-only (deploy key) or removed.
+6. On AX41: run the sparse-checkout + tripwire commands so `vault/` cannot be committed locally. Confirm AX41's GitHub credential for the fbrain repo is read-only (deploy key) or removed.
 
 ## What's automatable (agent can do once authorized)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# icontext demo script — rehearse before recording
+# fbrain demo script — rehearse before recording
 # Usage: bash demo/demo.sh
 # Record with: asciinema rec demo/icontext-demo.cast --command "bash demo/demo.sh"
 
@@ -14,10 +14,10 @@ pause() { sleep "${1:-0.8}"; }
 
 clear
 
-# === icontext init ===
+# === fbrain init ===
 echo ""
 hr
-echo -e "  ${BOLD}icontext · init${RESET}"
+echo -e "  ${BOLD}fbrain · init${RESET}"
 hr
 echo ""
 pause 0.4
@@ -34,7 +34,7 @@ hr
 echo ""
 echo "  Next:"
 echo -e "    ${BOLD}open Claude Code${RESET} and ask:"
-echo -e "      ${DIM}\"Populate my icontext profile\"${RESET}"
+echo -e "      ${DIM}\"Populate my fbrain profile\"${RESET}"
 echo ""
 pause 1.6
 
@@ -43,10 +43,10 @@ echo ""
 echo -e "  ${DIM}# Claude Code session${RESET}"
 echo ""
 pause 0.5
-echo -e "  ${CYAN}You:${RESET} populate my icontext profile"
+echo -e "  ${CYAN}You:${RESET} populate my fbrain profile"
 echo ""
 pause 1.2
-echo -e "  ${GREEN}Claude:${RESET} I'll use the icontext-populate-profile skill."
+echo -e "  ${GREEN}Claude:${RESET} I'll use the fbrain-populate-profile skill."
 pause 0.5
 echo ""
 printf "    fetching last 90 days of Gmail metadata via MCP..."; pause 1.2; echo -e " ${GREEN}✓${RESET}"
@@ -84,5 +84,5 @@ echo ""
 pause 1.0
 hr
 echo ""
-echo -e "  ${DIM}# icontext — github.com/floomhq/icontext${RESET}"
+echo -e "  ${DIM}# fbrain — github.com/floomhq/fbrain${RESET}"
 echo ""

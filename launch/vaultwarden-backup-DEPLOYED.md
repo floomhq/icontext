@@ -109,7 +109,7 @@ Caveat: Vaultwarden currently has 0 users, 0 ciphers — the drill cannot prove 
 
 ## Adversarial review (Codex v2) — top 5 weaknesses + fixes
 
-The original Codex v1 plan was reviewed by a fresh Codex invocation. The full v2 plan is at `/tmp/icontext-audit/launch/vaultwarden-backup-plan-v2.md`. Top findings:
+The original Codex v1 plan was reviewed by a fresh Codex invocation. The full v2 plan is at `/tmp/fbrain-audit/launch/vaultwarden-backup-plan-v2.md`. Top findings:
 
 1. **Single paper key was a recursive recovery failure.** Original v1 deferred Shamir fallback. v2 ships with both primary AND escrow age identities (two independent paper trails), with Shamir 2-of-3 documented as the next-quarter improvement.
 2. **Cron is fragile vs systemd timers.** v2 uses systemd timers with `Persistent=true` + `flock` lock + `systemd-inhibit` shutdown delay. Implemented.
@@ -189,9 +189,9 @@ When Federico finishes the 5 actions above, the score is 10/10. The pipeline is 
 
 ## Files index
 
-- `/tmp/icontext-audit/launch/vaultwarden-backup-plan.md` — original Codex v1 plan
-- `/tmp/icontext-audit/launch/vaultwarden-backup-plan-v2.md` — Codex v2 adversarial rewrite
-- `/tmp/icontext-audit/launch/vaultwarden-backup-DEPLOYED.md` — this file
+- `/tmp/fbrain-audit/launch/vaultwarden-backup-plan.md` — original Codex v1 plan
+- `/tmp/fbrain-audit/launch/vaultwarden-backup-plan-v2.md` — Codex v2 adversarial rewrite
+- `/tmp/fbrain-audit/launch/vaultwarden-backup-DEPLOYED.md` — this file
 - `/root/fede-vault/infra/vaultwarden-backup-strategy.md` — original v1 (vault copy)
 - `/root/fede-vault/infra/vaultwarden-restore-drill.md` — drill procedure + first-run log
 - `/root/fede-vault/infra/vaultwarden-docker-compose.current.yml` — current `docker-compose.yml`

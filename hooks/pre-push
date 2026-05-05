@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# icontext pre-push hook: preserve Git LFS behavior, then enforce tier placement.
+# fbrain pre-push hook: preserve Git LFS behavior, then enforce tier placement.
 
 set -euo pipefail
 
-ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
-CONFIG="${ICONTEXT_TIERS_CONFIG:-.icontext-tiers.yml}"
+FBRAIN_ROOT="${FBRAIN_ROOT:-${ICONTEXT_ROOT:-$HOME/fbrain}}"
+CONFIG="${FBRAIN_TIERS_CONFIG:-${ICONTEXT_TIERS_CONFIG:-.icontext-tiers.yml}}"
 
 REMOTE_NAME="${1:-}"
 REMOTE_URL="${2:-}"
@@ -19,7 +19,7 @@ if command -v git-lfs >/dev/null 2>&1; then
 fi
 
 if [ ! -f "$CONFIG" ]; then
-    echo "icontext: $CONFIG not found; skipping sensitivity tier check"
+    echo "fbrain: $CONFIG not found; skipping sensitivity tier check"
     exit 0
 fi
 
@@ -29,4 +29,4 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     args+=(--ref-pair "$local_sha..$remote_sha")
 done <<<"$STDIN_PAYLOAD"
 
-PYTHONDONTWRITEBYTECODE=1 python3 "$ICONTEXT_ROOT/scripts/check_tiers.py" --repo "$PWD" --config "$CONFIG" "${args[@]}"
+PYTHONDONTWRITEBYTECODE=1 python3 "$FBRAIN_ROOT/scripts/check_tiers.py" --repo "$PWD" --config "$CONFIG" "${args[@]}"

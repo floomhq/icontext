@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in iContext.
+Thanks for your interest in fbrain.
 
 ## Reporting issues
 
@@ -19,8 +19,8 @@ Thanks for your interest in iContext.
 ## Local development
 
 ```bash
-git clone https://github.com/floomhq/icontext ~/icontext-dev
-cd ~/icontext-dev
+git clone https://github.com/floomhq/fbrain ~/fbrain-dev
+cd ~/fbrain-dev
 pip install -e .
 pip install pytest
 pytest tests/

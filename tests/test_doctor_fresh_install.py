@@ -26,7 +26,7 @@ def write_executable(path: Path, content: str) -> None:
 
 
 def make_icontext_root(tmp_path: Path) -> Path:
-    root = tmp_path / "icontext"
+    root = tmp_path / "fbrain"
     for directory in ["config", "workflows", "mcp", "scripts", "hooks"]:
         (root / directory).mkdir(parents=True)
     (root / "config" / "gitleaks.toml").write_text("title = 'test'\n", encoding="utf-8")

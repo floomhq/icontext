@@ -1,4 +1,4 @@
-# Recording the icontext demo
+# Recording the fbrain demo
 
 ## Requirements
 
@@ -28,5 +28,5 @@ agg demo/icontext-demo.cast demo/icontext-demo.gif --font-size 14 --theme monoka
 ## Embed in README
 
 ```markdown
-![icontext demo](demo/icontext-demo.gif)
+![fbrain demo](demo/icontext-demo.gif)
 ```

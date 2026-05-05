@@ -90,7 +90,7 @@ class IcontextIntegrationInstallTests(unittest.TestCase):
     def test_agent_configs_are_installed_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            icontext_root = root / "icontext"
+            icontext_root = root / "fbrain"
             repo = root / "context"
             claude_dir = root / ".claude"
             codex_config = root / ".codex" / "config.toml"
@@ -116,11 +116,11 @@ class IcontextIntegrationInstallTests(unittest.TestCase):
             cursor = json.loads(cursor_mcp.read_text(encoding="utf-8"))
             opencode = json.loads(opencode_config.read_text(encoding="utf-8"))
 
-        self.assertEqual(claude_mcp["mcpServers"]["icontext"]["command"], "python3")
+        self.assertEqual(claude_mcp["mcpServers"]["fbrain"]["command"], "python3")
         self.assertEqual(len(claude_settings["hooks"]["UserPromptSubmit"]), 1)
-        self.assertEqual(codex["mcp_servers"]["icontext"]["command"], "python3")
-        self.assertEqual(cursor["mcpServers"]["icontext"]["args"][-1], str(repo))
-        self.assertEqual(opencode["mcp"]["icontext"]["command"][0], "python3")
+        self.assertEqual(codex["mcp_servers"]["fbrain"]["command"], "python3")
+        self.assertEqual(cursor["mcpServers"]["fbrain"]["args"][-1], str(repo))
+        self.assertEqual(opencode["mcp"]["fbrain"]["command"][0], "python3")
 
 
 if __name__ == "__main__":

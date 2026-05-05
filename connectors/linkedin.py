@@ -1,4 +1,4 @@
-"""LinkedIn PDF connector for icontext."""
+"""LinkedIn PDF connector for fbrain."""
 from __future__ import annotations
 
 import json
@@ -90,7 +90,7 @@ def _read_pdf_text(pdf_path: Path) -> str:
             f"PDF appears to be empty or image-only: {pdf_path.name}\n"
             "  LinkedIn PDFs saved via browser Print→Save are image-only and cannot be parsed.\n"
             "  Use the official export instead: linkedin.com/in/you → More → Save to PDF\n"
-            "  Then re-run: icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
+            "  Then re-run: fbrain connect linkedin --pdf ~/Downloads/Profile.pdf"
         )
     except ImportError:
         raise RuntimeError(
@@ -100,7 +100,7 @@ def _read_pdf_text(pdf_path: Path) -> str:
             "    brew install poppler        # installs pdftotext (recommended)\n"
             "    pip install pypdf           # pure-Python fallback\n"
             "\n"
-            "  Then re-run: icontext connect linkedin --pdf {pdf_path}"
+            "  Then re-run: fbrain connect linkedin --pdf {pdf_path}"
         )
 
 
@@ -110,7 +110,7 @@ def _render_linkedin_md(profile: dict, today: str, pdf_name: str) -> str:
         "source: LinkedIn PDF",
         f"pdf_file: {pdf_name}",
         f"generated: {today}",
-        "refresh: icontext sync linkedin",
+        "refresh: fbrain sync linkedin",
         "---",
         "",
         "## Professional Summary",
@@ -170,7 +170,7 @@ class LinkedInConnector(BaseConnector):
     def connect(self, vault: Path, pdf_path: str | None = None) -> None:
         _print("")
         _print(_hr())
-        _print(f"    {_c(C.BOLD, 'icontext · connect linkedin')}")
+        _print(f"    {_c(C.BOLD, 'fbrain · connect linkedin')}")
         _print(_hr())
 
         if pdf_path is None:
@@ -202,13 +202,13 @@ class LinkedInConnector(BaseConnector):
                 for p in pdf_candidates[-5:]:
                     _print(_info(p.name))
                 _print("")
-                _print(_info(f"Re-run: icontext connect linkedin --pdf ~/Downloads/{pdf_candidates[-1].name}"))
+                _print(_info(f"Re-run: fbrain connect linkedin --pdf ~/Downloads/{pdf_candidates[-1].name}"))
             else:
                 _print("")
                 _print(_warn("No PDFs found in ~/Downloads. Download your LinkedIn PDF first:"))
                 _print(_info("linkedin.com/in/your-username → More → Save to PDF"))
                 _print("")
-                _print(_info("Then re-run: icontext connect linkedin"))
+                _print(_info("Then re-run: fbrain connect linkedin"))
             return
 
         if export_path.suffix.lower() != ".pdf":
@@ -224,7 +224,7 @@ class LinkedInConnector(BaseConnector):
                     f"{export_path.name} is too short to be a valid LinkedIn export "
                     f"({len(text.strip())} chars — expected at least 100).\n"
                     "  Make sure you used LinkedIn → More → Save to PDF, not a browser print.\n"
-                    f"  Then re-run: icontext connect linkedin --pdf {export_path}"
+                    f"  Then re-run: fbrain connect linkedin --pdf {export_path}"
                 )
             _print(f" {C.GREEN}✓{C.RESET} ({len(text)} chars)")
         except RuntimeError:
@@ -236,19 +236,19 @@ class LinkedInConnector(BaseConnector):
 
         _print(_ok("LinkedIn connected"))
         _print(_hr())
-        _print(_info("Run: icontext sync"))
+        _print(_info("Run: fbrain sync"))
 
     def sync(self, vault: Path) -> str:
         cfg = self.load_config(vault)
         pdf_path_str = cfg.get("pdf_path")
         if not pdf_path_str:
-            raise RuntimeError("No LinkedIn PDF configured. Run: icontext connect linkedin")
+            raise RuntimeError("No LinkedIn PDF configured. Run: fbrain connect linkedin")
 
         pdf_path = Path(pdf_path_str)
         if not pdf_path.exists():
             raise RuntimeError(
                 f"LinkedIn PDF no longer exists at: {pdf_path}\n"
-                "  Re-run: icontext connect linkedin --pdf /path/to/Profile.pdf"
+                "  Re-run: fbrain connect linkedin --pdf /path/to/Profile.pdf"
             )
 
         label_width = 36
@@ -269,7 +269,7 @@ class LinkedInConnector(BaseConnector):
                 f"No text could be extracted from {pdf_path.name}.\n"
                 "  The file may be image-only (browser-printed PDF).\n"
                 "  Use the official export: linkedin.com/in/you → More → Save to PDF\n"
-                f"  Then re-run: icontext connect linkedin --pdf {pdf_path}"
+                f"  Then re-run: fbrain connect linkedin --pdf {pdf_path}"
             )
 
         # Soft cap; the JSON-schema call handles structure, so we don't need to
@@ -288,7 +288,7 @@ class LinkedInConnector(BaseConnector):
         if missing:
             raise RuntimeError(
                 f"LinkedIn synthesis missing required fields: {', '.join(missing)}.\n"
-                "  Re-run: icontext sync linkedin"
+                "  Re-run: fbrain sync linkedin"
             )
 
         write_label = "writing profile..."

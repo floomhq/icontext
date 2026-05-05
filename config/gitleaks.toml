@@ -1,11 +1,11 @@
-# icontext gitleaks config
+# fbrain gitleaks config
 # Extends the gitleaks default ruleset with vault-specific allowlists.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "icontext: paths and patterns that are OK"
+description = "fbrain: paths and patterns that are OK"
 
 paths = [
     '''\.git/''',

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# icontext uninstaller: remove files recorded in .icontext/manifest.json.
+# fbrain uninstaller: remove files recorded in .icontext/manifest.json.
 
 set -euo pipefail
 
@@ -23,7 +23,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --vault)
             VAULT="${2:-}"
-            [ -n "$VAULT" ] || { echo "icontext: --vault requires a path"; exit 1; }
+            [ -n "$VAULT" ] || { echo "fbrain: --vault requires a path"; exit 1; }
             shift 2
             ;;
         --dry-run)
@@ -39,7 +39,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         -*)
-            echo "icontext: unknown option: $1"
+            echo "fbrain: unknown option: $1"
             usage
             exit 1
             ;;
@@ -53,21 +53,21 @@ done
 VAULT="$(cd "$VAULT" && pwd)"
 
 if [ ! -d "$VAULT/.git" ]; then
-    echo "icontext: $VAULT is not a git repo"
+    echo "fbrain: $VAULT is not a git repo"
     exit 1
 fi
 
 MANIFEST="$VAULT/.icontext/manifest.json"
 
-echo "icontext: uninstall plan"
+echo "fbrain: uninstall plan"
 echo "  target: $VAULT"
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "  dry-run: yes"
 fi
 
 if [ ! -f "$MANIFEST" ]; then
-    echo "icontext: manifest missing; refusing manifest-aware uninstall"
-    echo "icontext: remove legacy installs manually or reinstall icontext to create a manifest"
+    echo "fbrain: manifest missing; refusing manifest-aware uninstall"
+    echo "fbrain: remove legacy installs manually or reinstall fbrain to create a manifest"
     exit 1
 fi
 
@@ -153,14 +153,14 @@ PY
 
 if [ "$DRY_RUN" -eq 1 ]; then
     run_uninstall_plan 1
-    echo "icontext: dry run complete; no files were removed"
+    echo "fbrain: dry run complete; no files were removed"
     exit 0
 fi
 
 if [ "$YES" -eq 0 ]; then
     if [ ! -t 0 ]; then
         echo ""
-        echo "icontext: refusing to uninstall non-interactively without --yes"
+        echo "fbrain: refusing to uninstall non-interactively without --yes"
         exit 1
     fi
     echo ""
@@ -169,7 +169,7 @@ if [ "$YES" -eq 0 ]; then
     case "$answer" in
         y|Y|yes|YES) ;;
         *)
-            echo "icontext: cancelled"
+            echo "fbrain: cancelled"
             exit 1
         ;;
     esac
@@ -177,4 +177,4 @@ fi
 
 run_uninstall_plan 0
 
-echo "icontext: uninstall complete"
+echo "fbrain: uninstall complete"

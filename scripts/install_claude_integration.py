@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install icontext MCP and prompt integrations into local coding agents."""
+"""Install fbrain MCP and prompt integrations into local coding agents."""
 
 from __future__ import annotations
 
@@ -21,33 +21,33 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def _server_script(icontext_root: Path) -> str:
-    return str(icontext_root / "mcp" / "server.py")
+def _server_script(fbrain_root: Path) -> str:
+    return str(fbrain_root / "mcp" / "server.py")
 
 
 def _json_string(value: str) -> str:
     return json.dumps(value)
 
 
-def install_claude_mcp(claude_dir: Path, icontext_root: Path, repo: Path) -> None:
+def install_claude_mcp(claude_dir: Path, fbrain_root: Path, repo: Path) -> None:
     path = claude_dir / ".mcp.json"
     data = _read_json(path)
     servers = data.setdefault("mcpServers", {})
-    servers["icontext"] = {
+    servers["fbrain"] = {
         "command": "python3",
-        "args": [_server_script(icontext_root), "--repo", str(repo)],
+        "args": [_server_script(fbrain_root), "--repo", str(repo)],
     }
     _write_json(path, data)
 
 
-def install_claude_hook(claude_dir: Path, icontext_root: Path, repo: Path) -> None:
+def install_claude_hook(claude_dir: Path, fbrain_root: Path, repo: Path) -> None:
     path = claude_dir / "settings.json"
     data = _read_json(path)
     hooks = data.setdefault("hooks", {})
     entries = hooks.setdefault("UserPromptSubmit", [])
     command = (
-        f"ICONTEXT_ROOT={icontext_root} ICONTEXT_VAULT={repo} "
-        f"{icontext_root / 'hooks' / 'user-prompt-submit'}"
+        f"FBRAIN_ROOT={fbrain_root} FBRAIN_VAULT={repo} "
+        f"{fbrain_root / 'hooks' / 'user-prompt-submit'}"
     )
     desired = {
         "matcher": "",
@@ -69,38 +69,38 @@ def install_claude_hook(claude_dir: Path, icontext_root: Path, repo: Path) -> No
     _write_json(path, data)
 
 
-def install_claude(claude_dir: Path, icontext_root: Path, repo: Path) -> None:
-    install_claude_mcp(claude_dir, icontext_root, repo)
-    install_claude_hook(claude_dir, icontext_root, repo)
+def install_claude(claude_dir: Path, fbrain_root: Path, repo: Path) -> None:
+    install_claude_mcp(claude_dir, fbrain_root, repo)
+    install_claude_hook(claude_dir, fbrain_root, repo)
 
 
-def install_cursor(cursor_mcp: Path, icontext_root: Path, repo: Path) -> None:
+def install_cursor(cursor_mcp: Path, fbrain_root: Path, repo: Path) -> None:
     data = _read_json(cursor_mcp)
     servers = data.setdefault("mcpServers", {})
-    servers["icontext"] = {
+    servers["fbrain"] = {
         "command": "python3",
-        "args": [_server_script(icontext_root), "--repo", str(repo)],
+        "args": [_server_script(fbrain_root), "--repo", str(repo)],
         "env": {},
     }
     _write_json(cursor_mcp, data)
 
 
-def install_opencode(opencode_config: Path, icontext_root: Path, repo: Path) -> None:
+def install_opencode(opencode_config: Path, fbrain_root: Path, repo: Path) -> None:
     data = _read_json(opencode_config)
     servers = data.setdefault("mcp", {})
-    servers["icontext"] = {
+    servers["fbrain"] = {
         "type": "local",
-        "command": ["python3", _server_script(icontext_root), "--repo", str(repo)],
+        "command": ["python3", _server_script(fbrain_root), "--repo", str(repo)],
         "enabled": True,
     }
     _write_json(opencode_config, data)
 
 
-def _codex_block(icontext_root: Path, repo: Path) -> str:
-    args = ", ".join(_json_string(arg) for arg in [_server_script(icontext_root), "--repo", str(repo)])
+def _codex_block(fbrain_root: Path, repo: Path) -> str:
+    args = ", ".join(_json_string(arg) for arg in [_server_script(fbrain_root), "--repo", str(repo)])
     return "\n".join(
         [
-            "[mcp_servers.icontext]",
+            "[mcp_servers.fbrain]",
             'command = "python3"',
             f"args = [{args}]",
             "",
@@ -108,18 +108,18 @@ def _codex_block(icontext_root: Path, repo: Path) -> str:
     )
 
 
-def install_codex(codex_config: Path, icontext_root: Path, repo: Path) -> None:
+def install_codex(codex_config: Path, fbrain_root: Path, repo: Path) -> None:
     codex_config.parent.mkdir(parents=True, exist_ok=True)
     text = codex_config.read_text(encoding="utf-8") if codex_config.exists() else ""
-    block = _codex_block(icontext_root, repo)
-    pattern = re.compile(r"(?ms)^\[mcp_servers\.icontext\]\n.*?(?=^\[|\Z)")
+    block = _codex_block(fbrain_root, repo)
+    pattern = re.compile(r"(?ms)^\[mcp_servers\.(?:fbrain|icontext)\]\n.*?(?=^\[|\Z)")
     if pattern.search(text):
         text = pattern.sub(block, text)
     else:
         text = text.rstrip() + "\n\n" + block
     parsed = tomllib.loads(text)
-    if parsed["mcp_servers"]["icontext"]["args"][-1] != str(repo):
-        raise ValueError("Codex icontext MCP config did not round-trip")
+    if parsed["mcp_servers"]["fbrain"]["args"][-1] != str(repo):
+        raise ValueError("Codex fbrain MCP config did not round-trip")
     codex_config.write_text(text, encoding="utf-8")
 
 
@@ -129,7 +129,7 @@ def main() -> int:
     parser.add_argument("--codex-config", default="~/.codex/config.toml")
     parser.add_argument("--cursor-mcp", default="~/.cursor/mcp.json")
     parser.add_argument("--opencode-config", default="~/.config/opencode/opencode.json")
-    parser.add_argument("--icontext-root", default="~/icontext")
+    parser.add_argument("--fbrain-root", "--icontext-root", dest="fbrain_root", default="~/fbrain")
     parser.add_argument("--repo", default="~/context")
     parser.add_argument(
         "--agents",
@@ -143,22 +143,22 @@ def main() -> int:
     codex_config = Path(args.codex_config).expanduser()
     cursor_mcp = Path(args.cursor_mcp).expanduser()
     opencode_config = Path(args.opencode_config).expanduser()
-    icontext_root = Path(args.icontext_root).expanduser().resolve()
+    fbrain_root = Path(args.fbrain_root).expanduser().resolve()
     repo = Path(args.repo).expanduser().resolve()
     requested = set(args.agents)
     if "all" in requested:
         requested = {"claude", "codex", "cursor", "opencode"}
 
     if "claude" in requested:
-        install_claude(claude_dir, icontext_root, repo)
+        install_claude(claude_dir, fbrain_root, repo)
     if "codex" in requested:
-        install_codex(codex_config, icontext_root, repo)
+        install_codex(codex_config, fbrain_root, repo)
     if "cursor" in requested:
-        install_cursor(cursor_mcp, icontext_root, repo)
+        install_cursor(cursor_mcp, fbrain_root, repo)
     if "opencode" in requested:
-        install_opencode(opencode_config, icontext_root, repo)
+        install_opencode(opencode_config, fbrain_root, repo)
 
-    print(f"icontext: installed {', '.join(sorted(requested))} integrations for {repo}")
+    print(f"fbrain: installed {', '.join(sorted(requested))} integrations for {repo}")
     return 0
 
 

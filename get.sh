@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# icontext installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/floomhq/icontext/main/get.sh | bash
+# fbrain installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/floomhq/fbrain/main/get.sh | bash
 
 set -euo pipefail
 
-ICONTEXT_DIR="${ICONTEXT_DIR:-$HOME/icontext}"
+FBRAIN_DIR="${FBRAIN_DIR:-${ICONTEXT_DIR:-$HOME/fbrain}}"
 BIN_DIR="$HOME/.local/bin"
 
-echo "icontext: installing..."
+echo "fbrain: installing..."
 
 # --- Dependency checks -------------------------------------------------------
 MISSING_DEPS=()
@@ -22,7 +22,7 @@ fi
 
 if [ "${#MISSING_DEPS[@]}" -gt 0 ]; then
     echo ""
-    echo "icontext: missing required tools: ${MISSING_DEPS[*]}"
+    echo "fbrain: missing required tools: ${MISSING_DEPS[*]}"
     echo ""
     if [[ "$(uname)" == "Darwin" ]]; then
         echo "On Mac, install them with:"
@@ -37,31 +37,32 @@ if [ "${#MISSING_DEPS[@]}" -gt 0 ]; then
         echo "  sudo apt install git python3"
     fi
     echo ""
-    echo "Then re-run: curl -fsSL https://icontext.floom.dev/install | bash"
+    echo "Then re-run: curl -fsSL https://raw.githubusercontent.com/floomhq/fbrain/main/get.sh | bash"
     exit 1
 fi
 # -----------------------------------------------------------------------------
 
 # Clone or update
-if [ -d "$ICONTEXT_DIR/.git" ]; then
-    echo "icontext: updating $ICONTEXT_DIR"
-    git -C "$ICONTEXT_DIR" pull --ff-only --quiet
+if [ -d "$FBRAIN_DIR/.git" ]; then
+    echo "fbrain: updating $FBRAIN_DIR"
+    git -C "$FBRAIN_DIR" pull --ff-only --quiet
 else
-    echo "icontext: cloning to $ICONTEXT_DIR"
-    git clone --quiet https://github.com/floomhq/icontext "$ICONTEXT_DIR"
+    echo "fbrain: cloning to $FBRAIN_DIR"
+    git clone --quiet https://github.com/floomhq/fbrain "$FBRAIN_DIR"
 fi
 
 # Install CLI
-# Note: in agents mode, install.sh creates a symlink from ~/.local/bin/icontext
-# into the vault AFTER the vault is created by `icontext init`. We install a
+# Note: in agents mode, install.sh creates a symlink from ~/.local/bin/fbrain
+# into the vault AFTER the vault is created by `fbrain init`. We install a
 # direct symlink to the repo here so the CLI is available immediately.
 mkdir -p "$BIN_DIR"
-if command -v pip3 &>/dev/null && pip3 install -e "$ICONTEXT_DIR" --quiet 2>/dev/null; then
-    echo "icontext: CLI installed via pip"
+if command -v pip3 &>/dev/null && pip3 install -e "$FBRAIN_DIR" --quiet 2>/dev/null; then
+    echo "fbrain: CLI installed via pip"
 else
-    ln -sf "$ICONTEXT_DIR/cli.py" "$BIN_DIR/icontext"
-    chmod +x "$ICONTEXT_DIR/cli.py"
-    echo "icontext: CLI linked to $BIN_DIR/icontext"
+    ln -sf "$FBRAIN_DIR/cli.py" "$BIN_DIR/fbrain"
+    ln -sf "$FBRAIN_DIR/cli.py" "$BIN_DIR/icontext"
+    chmod +x "$FBRAIN_DIR/cli.py"
+    echo "fbrain: CLI linked to $BIN_DIR/fbrain"
 fi
 
 # Auto-add ~/.local/bin to PATH in shell profile
@@ -77,18 +78,18 @@ fi
 if [ -n "$SHELL_RC" ]; then
     if ! grep -q 'local/bin' "$SHELL_RC" 2>/dev/null; then
         echo '' >> "$SHELL_RC"
-        echo '# icontext' >> "$SHELL_RC"
+        echo '# fbrain' >> "$SHELL_RC"
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
-        echo "icontext: added ~/.local/bin to PATH in $SHELL_RC"
+        echo "fbrain: added ~/.local/bin to PATH in $SHELL_RC"
     fi
 fi
 
 echo ""
-echo "icontext: done."
+echo "fbrain: done."
 echo ""
 echo "  Next:"
 echo "    1. Restart your terminal (or: source ~/.zshrc)"
-echo "    2. Run: icontext init"
-echo "    3. Open Claude Code and say: \"populate my icontext profile\""
+echo "    2. Run: fbrain init"
+echo "    3. Open Claude Code and say: \"populate my fbrain profile\""
 echo ""
 echo "  No API keys needed. Your agent does the synthesis."
