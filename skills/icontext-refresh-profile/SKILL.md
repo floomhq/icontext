@@ -70,6 +70,13 @@ previous_generated: {prior_date_from_old_file}
 
 This gives future refresh runs a trail of when the profile last meaningfully changed.
 
+## Changelog
+
+After a write (skip if no meaningful changes), append one line to `~/context/internal/changes.md`:
+```
+YYYY-MM-DD: refresh — <changed/no change>, source: <source>
+```
+
 ## Output
 
 Summarize for the user:
