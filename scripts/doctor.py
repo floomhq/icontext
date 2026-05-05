@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an icontext install end to end."""
+"""Verify a fbrain install end to end."""
 
 from __future__ import annotations
 
@@ -37,12 +37,12 @@ class Doctor:
         self.skills_first = self._detect_skills_first()
 
     def _detect_skills_first(self) -> bool:
-        """Skills-first mode is the default for `icontext init`. Signal: at
-        least one icontext skill installed in ~/.claude/skills/, AND no legacy
+        """Skills-first mode is the default for `fbrain init`. Signal: at
+        least one fbrain skill installed in ~/.claude/skills/, AND no legacy
         marker present in the vault."""
         skills_dir = Path("~/.claude/skills").expanduser()
         has_skills = skills_dir.is_dir() and any(
-            (skills_dir / f"icontext-{name}/SKILL.md").is_file()
+            (skills_dir / f"fbrain-{name}/SKILL.md").is_file()
             for name in ("populate-profile", "refresh-profile", "share-card")
         )
         legacy_marker = self.repo / ".icontext" / "manifest.json"
@@ -213,7 +213,7 @@ class Doctor:
         db = self.repo / ".git" / "icontext" / "index.sqlite"
         marker = self.repo / ".git" / "icontext" / "last-indexed"
         if not db.exists():
-            self._legacy_check("index:sqlite", "fail", "missing — run: icontext rebuild")
+            self._legacy_check("index:sqlite", "fail", "missing — run: fbrain rebuild")
             return
         count = marker.read_text(encoding="utf-8").strip() if marker.exists() else "unknown"
         self.pass_("index:sqlite", f"{db} ({count} indexed text files)")
@@ -230,7 +230,7 @@ class Doctor:
                         "params": {
                             "protocolVersion": "2024-11-05",
                             "capabilities": {},
-                            "clientInfo": {"name": "icontext-doctor", "version": "1"},
+                            "clientInfo": {"name": "fbrain-doctor", "version": "1"},
                         },
                     }
                 ),
@@ -270,7 +270,7 @@ class Doctor:
             return
         text = responses[-1]["result"]["content"][0]["text"]
         if text == "[]":
-            self._legacy_check("mcp:search", "fail", f"no results for {self.query!r} — run: icontext rebuild")
+            self._legacy_check("mcp:search", "fail", f"no results for {self.query!r} — run: fbrain rebuild")
         else:
             self.pass_("mcp:search", f"{len(text)} response chars for {self.query!r}")
 
@@ -279,7 +279,7 @@ class Doctor:
         self._check_json_server(
             "claude:mcp",
             Path("~/.claude/.mcp.json").expanduser(),
-            ["mcpServers", "icontext"],
+            ["mcpServers", "fbrain"],
             expected_args,
         )
         settings = Path("~/.claude/settings.json").expanduser()
@@ -298,13 +298,13 @@ class Doctor:
         self._check_json_server(
             "cursor:mcp",
             Path("~/.cursor/mcp.json").expanduser(),
-            ["mcpServers", "icontext"],
+            ["mcpServers", "fbrain"],
             expected_args,
         )
         self._check_json_server(
             "opencode:mcp",
             Path("~/.config/opencode/opencode.json").expanduser(),
-            ["mcp", "icontext"],
+            ["mcp", "fbrain"],
             expected_args,
             command_key="command",
             command_in_args=True,
@@ -329,9 +329,9 @@ class Doctor:
                 actual = actual[1:]
             if actual == expected_args:
                 self.pass_(name, str(path))
-            elif self.skills_first and "icontext" in str(actual):
-                # Skills-first: each `icontext init` registers MCP for that vault.
-                # If icontext is registered at all, the user is wired up.
+            elif self.skills_first and ("fbrain" in str(actual) or "icontext" in str(actual)):
+                # Skills-first: each `fbrain init` registers MCP for that vault.
+                # If fbrain is registered at all, the user is wired up.
                 self.pass_(name, f"{path} (registered for a different vault)")
             else:
                 self._legacy_check(name, "fail", f"unexpected args: {actual}")
@@ -342,7 +342,7 @@ class Doctor:
         path = Path("~/.codex/config.toml").expanduser()
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8"))
-            server = data["mcp_servers"]["icontext"]
+            server = data["mcp_servers"]["fbrain"]
             if server.get("command") == "python3" and server.get("args") == expected_args:
                 self.pass_("codex:mcp", str(path))
             elif self.skills_first and server.get("command") == "python3":
@@ -353,24 +353,24 @@ class Doctor:
             self._legacy_check("codex:mcp", "fail", str(exc))
 
     def check_native_clients(self) -> None:
-        codex = self.command(["codex", "mcp", "get", "icontext"], cwd=Path.home(), timeout=15)
+        codex = self.command(["codex", "mcp", "get", "fbrain"], cwd=Path.home(), timeout=15)
         if codex.returncode == 0 and str(self.repo) in codex.stdout:
-            self.pass_("codex:native", "codex mcp get icontext")
-        elif self.skills_first and codex.returncode == 0 and "icontext" in codex.stdout:
-            self.pass_("codex:native", "codex has icontext registered (for a different vault)")
+            self.pass_("codex:native", "codex mcp get fbrain")
+        elif self.skills_first and codex.returncode == 0 and ("fbrain" in codex.stdout or "icontext" in codex.stdout):
+            self.pass_("codex:native", "codex has fbrain registered (for a different vault)")
         else:
             self._legacy_check("codex:native", "fail", codex.stdout.strip())
 
         opencode = self.command(["opencode", "mcp", "list"], cwd=Path.home(), timeout=45)
-        if opencode.returncode == 0 and "icontext" in opencode.stdout and "connected" in opencode.stdout:
-            self.pass_("opencode:native", "opencode reports icontext connected")
+        if opencode.returncode == 0 and "fbrain" in opencode.stdout and "connected" in opencode.stdout:
+            self.pass_("opencode:native", "opencode reports fbrain connected")
         else:
             self.fail("opencode:native", opencode.stdout.strip())
 
         if shutil.which("cursor-agent"):
-            cursor = self.command(["cursor-agent", "mcp", "list-tools", "icontext"], cwd=Path.home(), timeout=45)
+            cursor = self.command(["cursor-agent", "mcp", "list-tools", "fbrain"], cwd=Path.home(), timeout=45)
             if cursor.returncode == 0 and "search_vault" in cursor.stdout:
-                self.pass_("cursor:native", "cursor-agent lists icontext tools")
+                self.pass_("cursor:native", "cursor-agent lists fbrain tools")
             else:
                 self.fail("cursor:native", cursor.stdout.strip())
         elif shutil.which("cursor"):
@@ -384,9 +384,9 @@ class Doctor:
     # ------------------------------------------------------------------
 
     def check_connectors(self) -> None:
-        """Check that connector files are present in the iContext install root.
+        """Check that connector files are present in the fbrain install root.
 
-        In the skills-first architecture, connectors live in ~/icontext/connectors/
+        In the skills-first architecture, connectors live in ~/fbrain/connectors/
         (the install root), not inside the vault. The vault gets skills + folder
         structure; sync (which uses connectors) is opt-in and runs from the install.
         """
@@ -409,7 +409,7 @@ class Doctor:
         else:
             self.fail("connectors:cli.py", f"{cli_path} missing")
 
-        symlink = Path("~/.local/bin/icontext").expanduser()
+        symlink = Path("~/.local/bin/fbrain").expanduser()
         if symlink.exists() or symlink.is_symlink():
             target = symlink.resolve() if symlink.is_symlink() else symlink
             self.pass_("connectors:symlink", f"{symlink} -> {target}")
@@ -423,7 +423,7 @@ class Doctor:
 
         cfg_path = self.repo / ".icontext" / "connectors.json"
         if not cfg_path.exists():
-            self.warn("sources:config", "connectors.json not found — run: icontext connect gmail")
+            self.warn("sources:config", "connectors.json not found — run: fbrain connect gmail")
             return
 
         try:
@@ -438,7 +438,7 @@ class Doctor:
         for source_name, source_cfg in cfg.items():
             last_sync_str = source_cfg.get("last_sync")
             if not last_sync_str:
-                self.warn(f"sources:{source_name}:last_sync", "never synced — run: icontext sync")
+                self.warn(f"sources:{source_name}:last_sync", "never synced — run: fbrain sync")
             else:
                 try:
                     ts = datetime.fromisoformat(last_sync_str.replace("Z", "+00:00"))
@@ -446,7 +446,7 @@ class Doctor:
                         days = (datetime.now(UTC) - ts).days
                         self.warn(
                             f"sources:{source_name}:last_sync",
-                            f"stale ({days}d ago) — run: icontext sync {source_name}",
+                            f"stale ({days}d ago) — run: fbrain sync {source_name}",
                         )
                     else:
                         self.pass_(f"sources:{source_name}:last_sync", last_sync_str)
@@ -464,7 +464,7 @@ class Doctor:
                 else:
                     self.warn(
                         f"sources:{source_name}:profile",
-                        f"{profile_path} missing — run: icontext sync {source_name}",
+                        f"{profile_path} missing — run: fbrain sync {source_name}",
                     )
 
     def check_profile(self) -> None:
@@ -483,28 +483,28 @@ class Doctor:
             if user_md.exists():
                 self.pass_("profile:user.md", str(user_md))
             else:
-                self.fail("profile:user.md", f"{user_md} missing — run: icontext sync gmail")
+                self.fail("profile:user.md", f"{user_md} missing — run: fbrain sync gmail")
 
         if "linkedin" in cfg:
             linkedin_md = self.repo / "internal" / "profile" / "linkedin.md"
             if linkedin_md.exists():
                 self.pass_("profile:linkedin.md", str(linkedin_md))
             else:
-                self.fail("profile:linkedin.md", f"{linkedin_md} missing — run: icontext sync linkedin")
+                self.fail("profile:linkedin.md", f"{linkedin_md} missing — run: fbrain sync linkedin")
 
         if cfg:
             card_md = self.repo / "shareable" / "profile" / "context-card.md"
             if card_md.exists():
                 self.pass_("profile:context-card.md", str(card_md))
             else:
-                self.warn("profile:context-card.md", f"{card_md} missing — run: icontext sync")
+                self.warn("profile:context-card.md", f"{card_md} missing — run: fbrain sync")
 
     def check_environment(self) -> None:
         """Check optional headless-sync deps. Default install requires none of these."""
         import importlib
 
         # All checks here are warn-level: the default flow uses agent skills, not Gemini.
-        # These deps only matter for the optional `icontext sync` headless fallback.
+        # These deps only matter for the optional `fbrain sync` headless fallback.
         gemini_key = os.environ.get("GEMINI_API_KEY")
         google_key = os.environ.get("GOOGLE_API_KEY")
         if gemini_key:
@@ -523,7 +523,7 @@ class Doctor:
         except ImportError:
             self.pass_(
                 "env:google-generativeai",
-                "not installed — install only if you want headless sync: pip install 'icontext[sync]'",
+                "not installed — install only if you want headless sync: pip install 'fbrain[sync]'",
             )
 
         try:
@@ -532,39 +532,39 @@ class Doctor:
         except ImportError:
             self.pass_(
                 "env:keyring",
-                "not installed — install only if you want headless sync: pip install 'icontext[sync]'",
+                "not installed — install only if you want headless sync: pip install 'fbrain[sync]'",
             )
 
         # Skill files installed?
         skills_dir = Path("~/.claude/skills").expanduser()
-        skill_names = ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card")
+        skill_names = ("fbrain-populate-profile", "fbrain-refresh-profile", "fbrain-share-card")
         missing = [n for n in skill_names if not (skills_dir / n / "SKILL.md").exists()]
         if not missing:
             self.pass_("skills:claude", f"all 3 skills installed at {skills_dir}")
         else:
-            self.fail("skills:claude", f"missing skills: {', '.join(missing)} — run: icontext init")
+            self.fail("skills:claude", f"missing skills: {', '.join(missing)} — run: fbrain init")
 
     def check_claude_integration(self) -> None:
         """Check CLAUDE.md snippet and .mcp.json entry."""
         claude_md = Path("~/.claude/CLAUDE.md").expanduser()
         if not claude_md.exists():
-            self.warn("claude:CLAUDE.md", f"{claude_md} not found — run: icontext init")
-        elif "<!-- icontext -->" in claude_md.read_text(encoding="utf-8", errors="replace"):
-            self.pass_("claude:CLAUDE.md", "icontext snippet present")
+            self.warn("claude:CLAUDE.md", f"{claude_md} not found — run: fbrain init")
+        elif "<!-- fbrain -->" in claude_md.read_text(encoding="utf-8", errors="replace"):
+            self.pass_("claude:CLAUDE.md", "fbrain snippet present")
         else:
-            self.fail("claude:CLAUDE.md", "<!-- icontext --> snippet missing — run: icontext init")
+            self.fail("claude:CLAUDE.md", "<!-- fbrain --> snippet missing — run: fbrain init")
 
         mcp_json = Path("~/.claude/.mcp.json").expanduser()
         if not mcp_json.exists():
-            self.warn("claude:mcp.json", f"{mcp_json} not found — run: icontext init")
+            self.warn("claude:mcp.json", f"{mcp_json} not found — run: fbrain init")
         else:
             try:
                 data = json.loads(mcp_json.read_text(encoding="utf-8"))
                 servers = data.get("mcpServers", {})
-                if "icontext" in servers:
-                    self.pass_("claude:mcp.json", "icontext server entry present")
+                if "fbrain" in servers:
+                    self.pass_("claude:mcp.json", "fbrain server entry present")
                 else:
-                    self.fail("claude:mcp.json", "icontext entry missing — run: icontext init")
+                    self.fail("claude:mcp.json", "fbrain entry missing — run: fbrain init")
             except Exception as exc:
                 self.fail("claude:mcp.json", f"cannot parse {mcp_json}: {exc}")
 
@@ -593,7 +593,7 @@ class Doctor:
                 "run",
                 "list",
                 "--workflow",
-                "icontext sensitivity",
+                "fbrain sensitivity",
                 "--limit",
                 "1",
                 "--json",
@@ -643,7 +643,7 @@ class FreshInstallDoctor:
         self.check_inputs()
         if any(check.status == "fail" for check in self.checks):
             return 1
-        with tempfile.TemporaryDirectory(prefix="icontext-doctor-") as tempdir:
+        with tempfile.TemporaryDirectory(prefix="fbrain-doctor-") as tempdir:
             temp_root = Path(tempdir)
             dry_repo = temp_root / "dry-run-repo"
             real_repo = temp_root / "real-repo"
@@ -667,7 +667,12 @@ class FreshInstallDoctor:
         timeout: int = 30,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
-        env = {**os.environ, "ICONTEXT_ROOT": str(self.icontext_root), "VAULT": str(cwd)}
+        env = {
+            **os.environ,
+            "FBRAIN_ROOT": str(self.icontext_root),
+            "ICONTEXT_ROOT": str(self.icontext_root),
+            "VAULT": str(cwd),
+        }
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -852,7 +857,7 @@ class FreshInstallDoctor:
         if not isinstance(data, dict):
             return []
         fields: list[str] = []
-        for key in ["icontext_root", "vault"]:
+        for key in ["fbrain_root", "icontext_root", "vault"]:
             value = data.get(key)
             if isinstance(value, str) and Path(value).is_absolute():
                 fields.append(key)
@@ -919,7 +924,7 @@ def print_text(checks: list[Check]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default="~/context")
-    parser.add_argument("--icontext-root", default="~/icontext")
+    parser.add_argument("--fbrain-root", "--icontext-root", dest="fbrain_root", default="~/fbrain")
     parser.add_argument("--query", default="profile context")
     parser.add_argument("--deep", action="store_true", help="run slower gitleaks and GitHub checks")
     parser.add_argument("--fresh-install", action="store_true", help="verify install.sh and uninstall.sh in temp git repos")
@@ -927,9 +932,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.fresh_install:
-        doctor = FreshInstallDoctor(Path(args.icontext_root))
+        doctor = FreshInstallDoctor(Path(args.fbrain_root))
     else:
-        doctor = Doctor(Path(args.repo), Path(args.icontext_root), args.query, args.deep)
+        doctor = Doctor(Path(args.repo), Path(args.fbrain_root), args.query, args.deep)
     exit_code = doctor.run()
     if args.json:
         print(json.dumps([check.__dict__ for check in doctor.checks], indent=2))

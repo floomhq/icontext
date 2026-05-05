@@ -26,7 +26,7 @@ That is not agentic work.
 
 That is manual onboarding.
 
-So I built icontext.
+So I built fbrain.
 
 Plain English:
 
@@ -49,4 +49,4 @@ Bigger prompts were the wrong answer.
 Safer context is the unlock.
 
 Open source:
-https://github.com/floomhq/icontext
+https://github.com/floomhq/fbrain

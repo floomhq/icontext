@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal stdio MCP server for icontext."""
+"""Minimal stdio MCP server for fbrain."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _tools() -> list[dict]:
     return [
         {
             "name": "search_vault",
-            "description": "Search the local icontext index.",
+            "description": "Search the local fbrain index.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -61,7 +61,7 @@ def _tools() -> list[dict]:
         },
         {
             "name": "rebuild_index",
-            "description": "Rebuild the local icontext search index.",
+            "description": "Rebuild the local fbrain search index.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
@@ -103,7 +103,7 @@ class Server:
             return {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "icontext", "version": "0.1.0"},
+                "serverInfo": {"name": "fbrain", "version": "0.5.0"},
             }
         if method == "notifications/initialized":
             return None
@@ -152,7 +152,7 @@ class Server:
         if name == "sync_source":
             source = args.get("source", "gmail")
             result = subprocess.run(
-                ["icontext", "sync", source, "--vault", str(self.repo)],
+                ["fbrain", "sync", source, "--vault", str(self.repo)],
                 capture_output=True, text=True, timeout=300,
             )
             output = result.stdout + result.stderr
@@ -166,7 +166,7 @@ class Server:
         if name == "list_sources":
             cfg_path = self.repo / ".icontext" / "connectors.json"
             if not cfg_path.exists():
-                return _content("No sources configured. Run: icontext connect gmail")
+                return _content("No sources configured. Run: fbrain connect gmail")
             cfg = json.loads(cfg_path.read_text())
             lines = []
             for src, data in cfg.items():

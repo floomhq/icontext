@@ -1,11 +1,11 @@
-"""Tests for the icontext-write-fact skill routing."""
+"""Tests for the fbrain-write-fact skill routing."""
 from __future__ import annotations
 
 import unittest
 from pathlib import Path
 
 SKILLS_ROOT = Path(__file__).resolve().parents[1] / "skills"
-WRITE_FACT_SKILL = SKILLS_ROOT / "icontext-write-fact" / "SKILL.md"
+WRITE_FACT_SKILL = SKILLS_ROOT / "fbrain-write-fact" / "SKILL.md"
 
 
 class TestWriteFactSkillExists(unittest.TestCase):
@@ -13,7 +13,7 @@ class TestWriteFactSkillExists(unittest.TestCase):
     def test_skill_file_exists(self):
         self.assertTrue(
             WRITE_FACT_SKILL.exists(),
-            f"icontext-write-fact SKILL.md missing at {WRITE_FACT_SKILL}"
+            f"fbrain-write-fact SKILL.md missing at {WRITE_FACT_SKILL}"
         )
 
     def test_skill_has_frontmatter(self):
@@ -26,8 +26,8 @@ class TestWriteFactSkillExists(unittest.TestCase):
 
     def test_skill_frontmatter_has_name(self):
         content = WRITE_FACT_SKILL.read_text()
-        self.assertIn("name: icontext-write-fact", content,
-                      "frontmatter must declare name: icontext-write-fact")
+        self.assertIn("name: fbrain-write-fact", content,
+                      "frontmatter must declare name: fbrain-write-fact")
 
     def test_skill_frontmatter_has_description(self):
         content = WRITE_FACT_SKILL.read_text()
@@ -77,7 +77,7 @@ class TestWriteFactDecisionTree(unittest.TestCase):
 
 
 class TestWriteFactInstalledByInit(unittest.TestCase):
-    """Verify the skill ships via icontext init."""
+    """Verify the skill ships via fbrain init."""
 
     def test_init_installs_write_fact_skill(self):
         import os
@@ -92,15 +92,16 @@ class TestWriteFactInstalledByInit(unittest.TestCase):
             vault = Path(tmp) / "vault"
             env = os.environ.copy()
             env["HOME"] = str(home)
+            env.pop("FBRAIN_VAULT", None)
             env.pop("ICONTEXT_VAULT", None)
             subprocess.run(
                 [sys.executable, cli, "init", "--vault", str(vault)],
                 capture_output=True, text=True, env=env,
             )
-            skill_path = home / ".claude" / "skills" / "icontext-write-fact" / "SKILL.md"
+            skill_path = home / ".claude" / "skills" / "fbrain-write-fact" / "SKILL.md"
             self.assertTrue(
                 skill_path.exists(),
-                f"icontext-write-fact not installed by init. Expected at {skill_path}"
+                f"fbrain-write-fact not installed by init. Expected at {skill_path}"
             )
 
     def test_init_installs_cursor_rule_for_write_fact(self):
@@ -116,15 +117,16 @@ class TestWriteFactInstalledByInit(unittest.TestCase):
             vault = Path(tmp) / "vault"
             env = os.environ.copy()
             env["HOME"] = str(home)
+            env.pop("FBRAIN_VAULT", None)
             env.pop("ICONTEXT_VAULT", None)
             subprocess.run(
                 [sys.executable, cli, "init", "--vault", str(vault)],
                 capture_output=True, text=True, env=env,
             )
-            cursor_path = home / ".cursor" / "rules" / "icontext-write-fact.mdc"
+            cursor_path = home / ".cursor" / "rules" / "fbrain-write-fact.mdc"
             self.assertTrue(
                 cursor_path.exists(),
-                f"icontext-write-fact cursor rule not installed. Expected at {cursor_path}"
+                f"fbrain-write-fact cursor rule not installed. Expected at {cursor_path}"
             )
 
     def test_skills_list_shows_four_skills(self):
@@ -140,6 +142,7 @@ class TestWriteFactInstalledByInit(unittest.TestCase):
             vault = Path(tmp) / "vault"
             env = os.environ.copy()
             env["HOME"] = str(home)
+            env.pop("FBRAIN_VAULT", None)
             env.pop("ICONTEXT_VAULT", None)
             subprocess.run(
                 [sys.executable, cli, "init", "--vault", str(vault)],
@@ -151,10 +154,10 @@ class TestWriteFactInstalledByInit(unittest.TestCase):
             )
             output = result.stdout + result.stderr
             for name in (
-                "icontext-populate-profile",
-                "icontext-refresh-profile",
-                "icontext-share-card",
-                "icontext-write-fact",
+                "fbrain-populate-profile",
+                "fbrain-refresh-profile",
+                "fbrain-share-card",
+                "fbrain-write-fact",
             ):
                 self.assertIn(name, output,
                               f"skills list missing {name} after init")
@@ -176,6 +179,7 @@ class TestClaudeMdSnippetReferencesWriteFact(unittest.TestCase):
             vault = Path(tmp) / "vault"
             env = os.environ.copy()
             env["HOME"] = str(home)
+            env.pop("FBRAIN_VAULT", None)
             env.pop("ICONTEXT_VAULT", None)
             subprocess.run(
                 [sys.executable, cli, "init", "--vault", str(vault)],
@@ -184,8 +188,8 @@ class TestClaudeMdSnippetReferencesWriteFact(unittest.TestCase):
             claude_md = home / ".claude" / "CLAUDE.md"
             self.assertTrue(claude_md.exists(), "CLAUDE.md not written by init")
             content = claude_md.read_text()
-            self.assertIn("icontext-write-fact", content,
-                          "CLAUDE.md snippet must reference icontext-write-fact")
+            self.assertIn("fbrain-write-fact", content,
+                          "CLAUDE.md snippet must reference fbrain-write-fact")
 
 
 if __name__ == "__main__":

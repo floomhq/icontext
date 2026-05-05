@@ -1,4 +1,4 @@
-ICONTEXT LAUNCH VIDEO SCRIPT v2
+FBRAIN LAUNCH VIDEO SCRIPT v2
 "AI has Alzheimer's, until it doesn't"
 Total runtime: ~75 seconds
 
@@ -39,7 +39,7 @@ Visual: Cut to a terminal. Two commands running. Then the ~/context/ folder open
 
   "One folder. Three skill files.
 
-  That's icontext. Your agents read from it before answering.
+  That's fbrain. Your agents read from it before answering.
   They write back to it as they learn.
 
   Every agent. Same brain."
@@ -51,7 +51,7 @@ Three quick visual cards or screen recordings. Each one beat.
   "One: one folder, every agent. Claude Code, Cursor, Codex — they all read the same ~/context/."
   Visual: Three terminals side by side, all loading context from the same folder.
 
-  "Two: it builds itself. Open Claude Code, say 'populate my icontext profile'. It reads your Gmail using its own tools. No API key. No server call."
+  "Two: it builds itself. Open Claude Code, say 'populate my fbrain profile'. It reads your Gmail using its own tools. No API key. No server call."
   Visual: Claude Code session running the populate skill, profile MD appearing.
 
   "Three: yours forever. Encrypted on your machine. Open source. You can read every line of what it knows about you."
@@ -59,13 +59,13 @@ Three quick visual cards or screen recordings. Each one beat.
 
 
 [1:05 — 1:15]  CTA
-Visual: Install command big and clean. icontext.floom.dev URL.
+Visual: Install command big and clean. floom.dev/fbrain URL.
 
-  "icontext. Open source.
+  "fbrain. Open source.
 
   Two commands. No API key. Your AI never forgets you again.
 
-  icontext.floom.dev"
+  floom.dev/fbrain"
 
 (end on the URL on screen, hold 2 seconds)
 

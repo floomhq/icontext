@@ -1,4 +1,4 @@
-"""Gmail IMAP connector for icontext."""
+"""Gmail IMAP connector for fbrain."""
 from __future__ import annotations
 
 import getpass
@@ -804,7 +804,7 @@ def _render_profile_md(profile: dict, sources: list[str], scan_days: int,
         f"source: {', '.join(sources)} (last {scan_days} days)" if scan_days else f"source: {', '.join(sources)}",
         f"accounts: {', '.join(accounts)}" if accounts else "",
         f"generated: {today}",
-        "refresh: icontext sync gmail",
+        "refresh: fbrain sync gmail",
         "---",
         "",
         "## Identity Summary",
@@ -873,7 +873,7 @@ def _render_profile_md(profile: dict, sources: list[str], scan_days: int,
 
 def _render_relationships_md(profile: dict, today: str) -> str:
     rels = profile.get("key_relationships") or []
-    body = ["---", "source: icontext/gmail", f"generated: {today}", "---", "",
+    body = ["---", "source: fbrain/gmail", f"generated: {today}", "---", "",
             "## Key Relationships", ""]
     if rels:
         body.append("| Name | Company | Role | Frequency | Warmth | Context |")
@@ -891,7 +891,7 @@ def _render_relationships_md(profile: dict, today: str) -> str:
 
 def _render_projects_md(profile: dict, today: str) -> str:
     projects = profile.get("active_projects") or []
-    body = ["---", "source: icontext/gmail", f"generated: {today}", "---", "",
+    body = ["---", "source: fbrain/gmail", f"generated: {today}", "---", "",
             "## Active Projects", ""]
     if projects:
         for p in projects:
@@ -916,7 +916,7 @@ def _render_card_md(profile: dict, today: str) -> str:
         "---\n"
         "shareable: true\n"
         f"generated: {today}\n"
-        "source: icontext\n"
+        "source: fbrain\n"
         "---\n\n"
         f"{card or '_(no card available)_'}\n"
     )
@@ -985,7 +985,7 @@ class GmailConnector(BaseConnector):
     def connect(self, vault: Path) -> None:
         _print("")
         _print(_hr())
-        _print(f"    {_c(C.BOLD, 'icontext · connect gmail')}")
+        _print(f"    {_c(C.BOLD, 'fbrain · connect gmail')}")
         _print(_hr())
         _print("")
         _print(f"  Gmail requires an App Password.")
@@ -995,7 +995,7 @@ class GmailConnector(BaseConnector):
         _print("")
         _print(f"  {_c(C.BOLD, 'Step 2')} — Create App Password:")
         _print(_info("https://myaccount.google.com/apppasswords"))
-        _print(_info("App name: icontext → click Create → copy 16-char code"))
+        _print(_info("App name: fbrain → click Create → copy 16-char code"))
         _print("")
         _print(_warn("Work/school accounts may have App Passwords disabled."))
         _print(f"    Use a personal Gmail if so.")
@@ -1086,7 +1086,7 @@ class GmailConnector(BaseConnector):
         if not accounts:
             raise RuntimeError(
                 "No Gmail accounts configured.\n"
-                "  Run: icontext connect gmail"
+                "  Run: fbrain connect gmail"
             )
 
         scan_days = int(cfg.get("scan_days", 90))
@@ -1103,7 +1103,7 @@ class GmailConnector(BaseConnector):
             if not pwd:
                 pwd = acct.get("app_password", "")
             if not pwd:
-                _print(_warn(f"no password for {addr} — run: icontext connect gmail"))
+                _print(_warn(f"no password for {addr} — run: fbrain connect gmail"))
                 continue
             own_addresses.add(addr.lower())
 
@@ -1122,7 +1122,7 @@ class GmailConnector(BaseConnector):
                 if sys.stdout.isatty():
                     print(f" {_c(C.RED, '✗')}")
                 _print(_err(f"Login failed for {addr}: {exc}"))
-                _print(_warn(f"Re-run 'icontext connect gmail' to update the app password."))
+                _print(_warn(f"Re-run 'fbrain connect gmail' to update the app password."))
                 continue
             except OSError as exc:
                 if sys.stdout.isatty():
@@ -1159,7 +1159,7 @@ class GmailConnector(BaseConnector):
                 "No messages retrieved from any Gmail account.\n"
                 "  Possible causes:\n"
                 "    - IMAP is disabled in Gmail settings → enable at gmail.com/settings → Forwarding and POP/IMAP\n"
-                "    - App password is stale — re-run: icontext connect gmail\n"
+                "    - App password is stale — re-run: fbrain connect gmail\n"
                 f"    - No messages in the last {scan_days} days (scan window)"
             )
 

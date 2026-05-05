@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# icontext pre-commit hook: gitleaks secret scanner
+# fbrain pre-commit hook: gitleaks secret scanner
 #
 # Scans staged changes for secrets. Blocks commit on finding.
-# Config: <vault>/.gitleaks.toml, falling back to icontext/config/gitleaks.toml.
+# Config: <vault>/.gitleaks.toml, falling back to fbrain/config/gitleaks.toml.
 
 set -euo pipefail
 
-ICONTEXT_ROOT="${ICONTEXT_ROOT:-$HOME/icontext}"
-CONFIG="${ICONTEXT_CONFIG:-$PWD/.gitleaks.toml}"
+FBRAIN_ROOT="${FBRAIN_ROOT:-${ICONTEXT_ROOT:-$HOME/fbrain}}"
+CONFIG="${FBRAIN_CONFIG:-${ICONTEXT_CONFIG:-$PWD/.gitleaks.toml}}"
 
 if [ ! -f "$CONFIG" ]; then
-    CONFIG="$ICONTEXT_ROOT/config/gitleaks.toml"
+    CONFIG="$FBRAIN_ROOT/config/gitleaks.toml"
 fi
 
 if ! command -v gitleaks >/dev/null 2>&1; then
-    echo "icontext: gitleaks not installed. Run: brew install gitleaks"
+    echo "fbrain: gitleaks not installed. Run: brew install gitleaks"
     exit 1
 fi
 
 if [ ! -f "$CONFIG" ]; then
-    echo "icontext: config not found at $CONFIG"
+    echo "fbrain: config not found at $CONFIG"
     exit 1
 fi
 
 if ! gitleaks protect --staged --redact --config="$CONFIG" --no-banner; then
     echo ""
-    echo "icontext: secrets detected in staged changes. Commit blocked."
+    echo "fbrain: secrets detected in staged changes. Commit blocked."
     echo "Options:"
     echo "  1. Remove the secret, stage the cleaned file, recommit"
     echo "  2. If false positive: add pattern to $CONFIG allowlist"

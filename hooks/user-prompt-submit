@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Claude UserPromptSubmit hook: inject relevant icontext search hits,
+# Claude UserPromptSubmit hook: inject relevant fbrain search hits,
 # and trigger a background sync if the profile is stale (>7 days old).
 
 from __future__ import annotations
@@ -11,21 +11,21 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ICONTEXT_ROOT = Path(os.environ.get("ICONTEXT_ROOT", Path.home() / "icontext"))
-ICONTEXT_VAULT = Path(os.environ.get("ICONTEXT_VAULT", Path.home() / "context"))
+FBRAIN_ROOT = Path(os.environ.get("FBRAIN_ROOT") or os.environ.get("ICONTEXT_ROOT", Path.home() / "fbrain"))
+FBRAIN_VAULT = Path(os.environ.get("FBRAIN_VAULT") or os.environ.get("ICONTEXT_VAULT", Path.home() / "context"))
 
-repo = ICONTEXT_VAULT
+repo = FBRAIN_VAULT
 
 # ---------------------------------------------------------------------------
 # Staleness check: if profile is >7 days old, trigger background sync.
-# Only fires if: vault exists, icontext CLI is on PATH, and at least one
+# Only fires if: vault exists, fbrain CLI is on PATH, and at least one
 # connector is configured (avoids noise on a fresh install).
 # ---------------------------------------------------------------------------
 profile_path = repo / "internal" / "profile" / "user.md"
-icontext_bin = shutil.which("icontext")
+fbrain_bin = shutil.which("fbrain") or shutil.which("icontext")
 connectors_cfg = repo / ".icontext" / "connectors.json"
 
-if profile_path.exists() and icontext_bin and connectors_cfg.exists():
+if profile_path.exists() and fbrain_bin and connectors_cfg.exists():
     mtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
     if datetime.now() - mtime > timedelta(days=7):
         import json as _json
@@ -39,7 +39,7 @@ if profile_path.exists() and icontext_bin and connectors_cfg.exists():
         if configured_sources:
             # Fire and forget — sync all configured sources (no explicit source = syncs all)
             subprocess.Popen(
-                [icontext_bin, "sync", "--vault", str(repo)],
+                [fbrain_bin, "sync", "--vault", str(repo)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
@@ -49,14 +49,14 @@ if profile_path.exists() and icontext_bin and connectors_cfg.exists():
 # Multi-device sync: if vault has an origin remote, pull in the background
 # so the agent sees fresh content from other machines. Non-blocking.
 # ---------------------------------------------------------------------------
-if icontext_bin and (repo / ".git").exists():
+if fbrain_bin and (repo / ".git").exists():
     has_origin = subprocess.run(
         ["git", "-C", str(repo), "remote", "get-url", "origin"],
         capture_output=True, text=True,
     )
     if has_origin.returncode == 0 and has_origin.stdout.strip():
         subprocess.Popen(
-            [icontext_bin, "pull", "--vault", str(repo)],
+            [fbrain_bin, "pull", "--vault", str(repo)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -65,9 +65,9 @@ if icontext_bin and (repo / ".git").exists():
 # ---------------------------------------------------------------------------
 # Context injection: delegate to prompt_context.py
 # ---------------------------------------------------------------------------
-prompt_context = ICONTEXT_ROOT / "scripts" / "prompt_context.py"
+prompt_context = FBRAIN_ROOT / "scripts" / "prompt_context.py"
 if prompt_context.exists():
-    os.environ["ICONTEXT_VAULT"] = str(ICONTEXT_VAULT)
+    os.environ["FBRAIN_VAULT"] = str(FBRAIN_VAULT)
     result = subprocess.run(
         [sys.executable, str(prompt_context)],
         env=os.environ,

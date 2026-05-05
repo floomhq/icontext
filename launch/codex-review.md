@@ -1,4 +1,4 @@
-# iContext Synthesis Pipeline — Codex Review
+# fbrain Synthesis Pipeline — Codex Review
 *Model: gpt-5.5 | Date: 2026-05-02 | Tokens used: Pass 1 ~59K, Pass 2 ~50K*
 
 ---

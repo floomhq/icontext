@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local SQLite FTS index for icontext vaults."""
+"""Local SQLite FTS index for fbrain vaults."""
 
 from __future__ import annotations
 

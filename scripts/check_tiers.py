@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check changed files against icontext tier placement."""
+"""Check changed files against fbrain tier placement."""
 
 from __future__ import annotations
 
@@ -194,24 +194,24 @@ def check_paths(repo: Path, config: Path, paths: list[str]) -> int:
             )
 
     if warnings:
-        print("icontext: tier warnings:", file=sys.stderr)
+        print("fbrain: tier warnings:", file=sys.stderr)
         for warning in warnings:
             print(f"  - {warning}", file=sys.stderr)
 
     if failures:
-        print("icontext: sensitivity tier check failed:", file=sys.stderr)
+        print("fbrain: sensitivity tier check failed:", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
     if skipped_unclassified:
         print(
-            "icontext: sensitivity tier check passed for "
+            "fbrain: sensitivity tier check passed for "
             f"{len(paths)} file(s); skipped {skipped_unclassified} unclassified "
             "legacy path(s)"
         )
     else:
-        print(f"icontext: sensitivity tier check passed for {len(paths)} file(s)")
+        print(f"fbrain: sensitivity tier check passed for {len(paths)} file(s)")
     return 0
 
 

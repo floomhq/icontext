@@ -2,12 +2,12 @@
 
 ## One-liner
 
-`icontext` is an encrypted AI context vault for Claude Code, Codex, Cursor, and
+`fbrain` is an encrypted AI context vault for Claude Code, Codex, Cursor, and
 OpenCode.
 
 ## Short Description
 
-Most AI coding agents can read a repo. `icontext` makes a private context repo
+Most AI coding agents can read a repo. `fbrain` makes a private context repo
 safe and useful: Git-backed tiers, git-crypt encryption, gitleaks, local SQLite
 retrieval, MCP tools, Claude prompt injection, multi-agent config, and a doctor
 command that verifies the whole setup.
@@ -19,7 +19,7 @@ context. Private strategy, legal files, credentials, notes, PDFs, and operating
 memory are usually either inaccessible to agents or pasted into prompts without
 controls.
 
-`icontext` turns that messy personal context into an operational substrate:
+`fbrain` turns that messy personal context into an operational substrate:
 encrypted at rest in Git, guarded before commit and push, searchable locally,
 and available to agents through explicit tools.
 
@@ -39,13 +39,13 @@ and available to agents through explicit tools.
 
 ## Launch Post Draft
 
-I built `icontext`: an encrypted AI context vault for Claude Code, Codex,
+I built `fbrain`: an encrypted AI context vault for Claude Code, Codex,
 Cursor, and OpenCode.
 
 The idea is simple: your private context repo is too valuable to stay as loose
 Markdown and too sensitive to paste into prompts.
 
-`icontext` gives it structure:
+`fbrain` gives it structure:
 
 - `shareable/`, `internal/`, and encrypted `vault/` tiers
 - git-crypt encryption for sensitive history
@@ -59,4 +59,4 @@ Markdown and too sensitive to paste into prompts.
 This changed how I work. My agents now have access to the context they need
 without turning my private operating system into prompt soup.
 
-Repo: https://github.com/floomhq/icontext
+Repo: https://github.com/floomhq/fbrain

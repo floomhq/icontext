@@ -1,4 +1,4 @@
-# icontext sensitivity tiers.
+# fbrain sensitivity tiers.
 #
 # rank: higher means more sensitive.
 # enforce_unclassified_paths=false keeps legacy repositories usable while they

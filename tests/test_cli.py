@@ -21,12 +21,13 @@ def _safe_env(home: str | None = None) -> dict:
     env = os.environ.copy()
     if home is not None:
         env["HOME"] = home
+        env.pop("FBRAIN_VAULT", None)
         env.pop("ICONTEXT_VAULT", None)
     return env
 
 
 def run(*args: str, vault: str | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
-    """Run icontext CLI.
+    """Run fbrain CLI.
 
     For subcommands (init, status, sync, share, doctor): `args[0]` is the subcommand
     and `--vault` is injected right after it (each subparser registers --vault locally).
@@ -62,13 +63,13 @@ class TestHelpAndVersion(unittest.TestCase):
         # argparse sends --version to stdout on some platforms, stderr on others
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0)
-        self.assertRegex(output, r"icontext \d+\.\d+\.\d+")
+        self.assertRegex(output, r"fbrain \d+\.\d+\.\d+")
 
     def test_no_args_exits_1_and_prints_help(self):
         result = run()
         self.assertEqual(result.returncode, 1)
         output = result.stdout + result.stderr
-        self.assertIn("icontext", output.lower())
+        self.assertIn("fbrain", output.lower())
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +128,7 @@ class TestInit(unittest.TestCase):
             run("init", vault=str(vault), env=_safe_env(str(home)))
             self.assertTrue(
                 (vault / ".git").exists(),
-                "Expected .git directory after icontext init"
+                "Expected .git directory after fbrain init"
             )
 
     def test_init_installs_skill_files(self):
@@ -139,7 +140,7 @@ class TestInit(unittest.TestCase):
             result = run("init", vault=str(vault), env=_safe_env(str(home)))
             output = result.stdout + result.stderr
             skills_dir = home / ".claude" / "skills"
-            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+            for name in ("fbrain-populate-profile", "fbrain-refresh-profile", "fbrain-share-card"):
                 skill = skills_dir / name / "SKILL.md"
                 self.assertTrue(
                     skill.exists(),
@@ -157,7 +158,7 @@ class TestInit(unittest.TestCase):
             vault = Path(tmp) / "cursor-vault"
             run("init", vault=str(vault), env=_safe_env(str(home)))
             rules_dir = home / ".cursor" / "rules"
-            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+            for name in ("fbrain-populate-profile", "fbrain-refresh-profile", "fbrain-share-card"):
                 self.assertTrue((rules_dir / f"{name}.mdc").exists(),
                                 f"Missing cursor rule {name}.mdc")
 
@@ -170,10 +171,10 @@ class TestInit(unittest.TestCase):
             claude_md = home / ".claude" / "CLAUDE.md"
             self.assertTrue(claude_md.exists(), "CLAUDE.md not created")
             text = claude_md.read_text()
-            self.assertIn("<!-- icontext -->", text)
-            self.assertIn("icontext-populate-profile", text)
-            self.assertIn("icontext-refresh-profile", text)
-            self.assertIn("icontext-share-card", text)
+            self.assertIn("<!-- fbrain -->", text)
+            self.assertIn("fbrain-populate-profile", text)
+            self.assertIn("fbrain-refresh-profile", text)
+            self.assertIn("fbrain-share-card", text)
             self.assertIn("internal/profile/user.md", text)
 
     def test_init_does_not_require_gemini_key(self):
@@ -250,7 +251,7 @@ class TestSkills(unittest.TestCase):
             result = run("skills", "list", env=_safe_env(str(home)))
             self.assertEqual(result.returncode, 0)
             output = result.stdout + result.stderr
-            for name in ("icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"):
+            for name in ("fbrain-populate-profile", "fbrain-refresh-profile", "fbrain-share-card"):
                 self.assertIn(name, output)
 
     def test_skills_no_action_defaults_to_list(self):
@@ -262,7 +263,7 @@ class TestSkills(unittest.TestCase):
             result = run("skills", env=_safe_env(str(home)))
             self.assertEqual(result.returncode, 0)
             output = result.stdout + result.stderr
-            self.assertIn("icontext-populate-profile", output)
+            self.assertIn("fbrain-populate-profile", output)
 
 
 # ---------------------------------------------------------------------------

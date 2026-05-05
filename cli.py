@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""icontext CLI — encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode."""
+"""fbrain CLI: encrypted AI context vault for Claude Code, Codex, Cursor, and OpenCode."""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +9,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
+
+CANONICAL_SKILLS = [
+    "fbrain-populate-profile",
+    "fbrain-refresh-profile",
+    "fbrain-share-card",
+    "fbrain-write-fact",
+]
+LEGACY_SKILLS = [
+    "icontext-populate-profile",
+    "icontext-refresh-profile",
+    "icontext-share-card",
+    "icontext-write-fact",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +65,7 @@ def _print(msg: str = "", **kwargs) -> None:
 def _header(cmd: str) -> None:
     _print("")
     _print(_hr())
-    _print(f"    {_c(C.BOLD, f'icontext · {cmd}')}")
+    _print(f"    {_c(C.BOLD, f'fbrain · {cmd}')}")
     _print(_hr())
 
 
@@ -63,7 +76,7 @@ def _header(cmd: str) -> None:
 def _resolve_vault(vault_arg: str | None) -> Path:
     if vault_arg:
         return Path(vault_arg).expanduser().resolve()
-    env = os.environ.get("ICONTEXT_VAULT")
+    env = os.environ.get("FBRAIN_VAULT") or os.environ.get("ICONTEXT_VAULT")
     if env:
         return Path(env).expanduser().resolve()
     default = Path("~/context").expanduser().resolve()
@@ -73,10 +86,10 @@ def _resolve_vault(vault_arg: str | None) -> Path:
         "\n"
         + _err("Vault not found.")
         + "\n\n"
-        + _info("Run 'icontext init' to create your vault, or specify the path:")
+        + _info("Run 'fbrain init' to create your vault, or specify the path:")
         + "\n"
-        + "    icontext --vault /path/to/vault <command>\n"
-        + "    ICONTEXT_VAULT=/path/to/vault icontext <command>\n"
+        + "    fbrain --vault /path/to/vault <command>\n"
+        + "    FBRAIN_VAULT=/path/to/vault fbrain <command>\n"
     )
 
 
@@ -148,7 +161,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     if not vault.exists():
         _print(_err(f"Vault not found: {vault}"))
-        _print(_info("Run 'icontext init' to create a vault, or check the path."))
+        _print(_info("Run 'fbrain init' to create a vault, or check the path."))
         return 1
 
     _header("status")
@@ -243,8 +256,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             _print(_warn("No sources configured yet."))
             _print("")
             _print(_info("Connect a source first:"))
-            _print("    icontext connect gmail")
-            _print("    icontext connect linkedin --pdf ~/Downloads/Profile.pdf")
+            _print("    fbrain connect gmail")
+            _print("    fbrain connect linkedin --pdf ~/Downloads/Profile.pdf")
             _print("")
             return 1
 
@@ -274,7 +287,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         _print("  Open Claude Code and ask:")
         _print(f'    {_c(C.DIM, chr(34) + "What do you know about me?" + chr(34))}')
         _print(_hr())
-        _print(_info("run `icontext doctor` to verify Claude Code has your profile"))
+        _print(_info("run `fbrain doctor` to verify Claude Code has your profile"))
         _print("")
 
     return exit_code
@@ -287,7 +300,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     try:
         from indexlib import search
     except ImportError:
-        sys.exit(_err("indexlib not found. Run from icontext repo root or after install."))
+        sys.exit(_err("indexlib not found. Run from fbrain repo root or after install."))
 
     results = search(vault, args.query, limit=args.limit, tier=args.tier or None)
     if not results:
@@ -307,7 +320,7 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     try:
         from indexlib import rebuild
     except ImportError:
-        sys.exit(_err("indexlib not found. Run from icontext repo root or after install."))
+        sys.exit(_err("indexlib not found. Run from fbrain repo root or after install."))
 
     _print(_info(f"Rebuilding index for {vault}..."))
     count = rebuild(vault)
@@ -344,16 +357,16 @@ def cmd_init(args: argparse.Namespace) -> int:
         )
         if not result.stdout.strip():
             _sp.run(
-                ["git", "config", "user.email", "icontext@local"],
+                ["git", "config", "user.email", "fbrain@local"],
                 cwd=str(vault), capture_output=True,
             )
             _sp.run(
-                ["git", "config", "user.name", "icontext"],
+                ["git", "config", "user.name", "fbrain"],
                 cwd=str(vault), capture_output=True,
             )
 
         _sp.run(
-            ["git", "-C", str(vault), "commit", "--allow-empty", "-m", "init: icontext vault"],
+            ["git", "-C", str(vault), "commit", "--allow-empty", "-m", "init: fbrain vault"],
             check=True,
             capture_output=True,
         )
@@ -371,20 +384,20 @@ def cmd_init(args: argparse.Namespace) -> int:
     _print("")
     _print("  Next: open Claude Code in this directory and paste:")
     _print("")
-    _print(f"    {_c(C.BOLD, 'Populate my icontext profile from Gmail.')}")
+    _print(f"    {_c(C.BOLD, 'Populate my fbrain profile from Gmail.')}")
     _print("")
     _print(f"  {_c(C.DIM, 'That is it. Claude will use its Gmail MCP to build your profile.')}")
     _print("")
     _print(f"  {_c(C.DIM, 'or, for headless setups (requires GEMINI_API_KEY):')}")
-    _print("    icontext connect gmail")
-    _print("    icontext sync")
+    _print("    fbrain connect gmail")
+    _print("    fbrain sync")
     _print("")
 
     return 0
 
 
 def _install_skills() -> tuple[int, list[str]]:
-    """Install icontext skill files into ~/.claude/skills/ and ~/.cursor/rules/.
+    """Install fbrain skill files into ~/.claude/skills/ and ~/.cursor/rules/.
 
     Returns (count_installed, list_of_status_messages).
     """
@@ -398,12 +411,7 @@ def _install_skills() -> tuple[int, list[str]]:
         msgs.append(_warn("skills/ source dir not found — skipping skill install"))
         return 0, msgs
 
-    skill_names = [
-        "icontext-populate-profile",
-        "icontext-refresh-profile",
-        "icontext-share-card",
-        "icontext-write-fact",
-    ]
+    skill_names = CANONICAL_SKILLS + LEGACY_SKILLS
     claude_skills_dir = Path("~/.claude/skills").expanduser()
     cursor_rules_dir = Path("~/.cursor/rules").expanduser()
     claude_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -428,19 +436,19 @@ def _install_skills() -> tuple[int, list[str]]:
         count += 1
 
     if count > 0:
-        msgs.append(_ok(f"{count} skill(s) installed (Claude Code + Cursor)"))
+        msgs.append(_ok(f"{count} skill file(s) installed (Claude Code + Cursor)"))
     return count, msgs
 
 
 def _install_claude_md_snippet(vault: Path) -> None:
-    """Write or update the icontext snippet in ~/.claude/CLAUDE.md."""
+    """Write or update the fbrain snippet in ~/.claude/CLAUDE.md."""
     claude_md = Path("~/.claude/CLAUDE.md").expanduser()
     home = str(Path("~").expanduser())
     vault_short = str(vault).replace(home, "~")
 
     snippet = (
-        "<!-- icontext -->\n"
-        "## iContext (your context vault)\n\n"
+        "<!-- fbrain -->\n"
+        "## fbrain (your context vault)\n\n"
         f"Your context vault is at {vault_short} with this structure:\n\n"
         "  internal/profile/    — private synthesized profile\n"
         "    user.md            — full profile (identity, relationships, projects)\n"
@@ -451,16 +459,16 @@ def _install_claude_md_snippet(vault: Path) -> None:
         "ALWAYS read internal/profile/user.md at session start before answering personal\n"
         "or work questions about the user.\n\n"
         "If files are missing or older than 7 days, offer to populate/refresh.\n"
-        "To populate, invoke the icontext-populate-profile skill.\n\n"
+        "To populate, invoke the fbrain-populate-profile skill.\n\n"
         "Available skills:\n"
-        "- icontext-populate-profile  (build profile from Gmail/LinkedIn/chat)\n"
-        "- icontext-refresh-profile   (update stale profile)\n"
-        "- icontext-share-card        (regenerate shareable summary)\n"
-        "- icontext-write-fact        (route a fact to the correct vault location)\n\n"
-        "Multi-device sync: at session start, run `icontext pull` to fetch any updates\n"
+        "- fbrain-populate-profile  (build profile from Gmail/LinkedIn/chat)\n"
+        "- fbrain-refresh-profile   (update stale profile)\n"
+        "- fbrain-share-card        (regenerate shareable summary)\n"
+        "- fbrain-write-fact        (route a fact to the correct vault location)\n\n"
+        "Multi-device sync: at session start, run `fbrain pull` to fetch any updates\n"
         "from other machines. The user-prompt-submit hook does this automatically if a\n"
         "remote is configured.\n"
-        "<!-- /icontext -->"
+        "<!-- /fbrain -->"
     )
 
     if claude_md.exists():
@@ -469,7 +477,7 @@ def _install_claude_md_snippet(vault: Path) -> None:
         claude_md.parent.mkdir(parents=True, exist_ok=True)
         existing = ""
 
-    pattern = re.compile(r"<!-- icontext -->.*?<!-- /icontext -->", re.DOTALL)
+    pattern = re.compile(r"<!-- (?:fbrain|icontext) -->.*?<!-- /(?:fbrain|icontext) -->", re.DOTALL)
     if pattern.search(existing):
         new_text = pattern.sub(snippet, existing)
         if new_text != existing:
@@ -496,8 +504,8 @@ def cmd_share(args: argparse.Namespace) -> int:
         _print("")
         _print("  The card is generated automatically during your first Gmail sync.")
         _print("")
-        _print(_info("icontext connect gmail   # if not done yet"))
-        _print(_info("icontext sync            # generates the card"))
+        _print(_info("fbrain connect gmail   # if not done yet"))
+        _print(_info("fbrain sync            # generates the card"))
         _print("")
         return 1
 
@@ -518,18 +526,13 @@ def cmd_share(args: argparse.Namespace) -> int:
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
-    """List or update installed icontext skills."""
+    """List or update installed fbrain skills."""
     import subprocess as _sp
 
     action = getattr(args, "skills_action", None) or "list"
     claude_skills_dir = Path("~/.claude/skills").expanduser()
     cursor_rules_dir = Path("~/.cursor/rules").expanduser()
-    skill_names = [
-        "icontext-populate-profile",
-        "icontext-refresh-profile",
-        "icontext-share-card",
-        "icontext-write-fact",
-    ]
+    skill_names = CANONICAL_SKILLS
 
     if action == "list":
         _header("skills")
@@ -547,18 +550,20 @@ def cmd_skills(args: argparse.Namespace) -> int:
     if action == "update":
         _header("skills · update")
         _print("")
-        # Pull latest skill files from the icontext repo
-        icontext_dir = Path("~/icontext").expanduser()
-        if (icontext_dir / ".git").exists():
-            _print(_info("pulling latest from floomhq/icontext..."))
+        # Pull latest skill files from the fbrain repo
+        fbrain_dir = Path(os.environ.get("FBRAIN_ROOT", "~/fbrain")).expanduser()
+        legacy_dir = Path("~/icontext").expanduser()
+        repo_dir = fbrain_dir if (fbrain_dir / ".git").exists() else legacy_dir
+        if (repo_dir / ".git").exists():
+            _print(_info("pulling latest from floomhq/fbrain..."))
             result = _sp.run(
-                ["git", "-C", str(icontext_dir), "pull", "--ff-only", "--quiet"],
+                ["git", "-C", str(repo_dir), "pull", "--ff-only", "--quiet"],
                 capture_output=True, text=True,
             )
             if result.returncode != 0:
                 _print(_warn(f"git pull failed: {result.stderr.strip()}"))
         else:
-            _print(_warn(f"no icontext repo at {icontext_dir} — using bundled skills"))
+            _print(_warn(f"no fbrain repo at {fbrain_dir} — using bundled skills"))
 
         count, msgs = _install_skills()
         for msg in msgs:
@@ -595,7 +600,7 @@ def cmd_push(args: argparse.Namespace) -> int:
         return 1
     if not (vault / ".git").exists():
         _print(_err(f"Vault is not a git repo: {vault}"))
-        _print(_info("Run 'icontext init' first."))
+        _print(_info("Run 'fbrain init' first."))
         return 1
 
     _header("push")
@@ -618,7 +623,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     if n_changed > 0:
         # Commit
         from datetime import datetime
-        msg = f"icontext: sync {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        msg = f"fbrain: sync {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         commit = subprocess.run(
             ["git", "-C", str(vault), "commit", "-m", msg],
             capture_output=True, text=True,
@@ -722,29 +727,32 @@ def cmd_pull(args: argparse.Namespace) -> int:
 # autosync
 # ---------------------------------------------------------------------------
 
-LAUNCHD_LABEL = "dev.icontext.autosync"
-SYSTEMD_SERVICE = "icontext-autosync.service"
-SYSTEMD_TIMER = "icontext-autosync.timer"
+LAUNCHD_LABEL = "dev.fbrain.autosync"
+SYSTEMD_SERVICE = "fbrain-autosync.service"
+SYSTEMD_TIMER = "fbrain-autosync.timer"
 
 
 def _launchd_plist_path() -> Path:
-    return Path("~/Library/LaunchAgents/dev.icontext.autosync.plist").expanduser()
+    return Path("~/Library/LaunchAgents/dev.fbrain.autosync.plist").expanduser()
 
 
 def _launchd_log_path() -> Path:
-    return Path("~/Library/Logs/icontext.log").expanduser()
+    return Path("~/Library/Logs/fbrain.log").expanduser()
 
 
 def _systemd_unit_dir() -> Path:
     return Path("~/.config/systemd/user").expanduser()
 
 
-def _icontext_bin() -> str:
-    """Best-effort path to the icontext executable for use in service files."""
+def _fbrain_bin() -> str:
+    """Best-effort path to the fbrain executable for use in service files."""
     import shutil as _sh
-    found = _sh.which("icontext")
+    found = _sh.which("fbrain")
     if found:
         return found
+    legacy = _sh.which("icontext")
+    if legacy:
+        return legacy
     # Fall back to invoking cli.py directly via the current python
     return f"{sys.executable} {Path(__file__).resolve()}"
 
@@ -754,10 +762,10 @@ def _autosync_start_macos(vault: Path) -> int:
     plist.parent.mkdir(parents=True, exist_ok=True)
     log_path = _launchd_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    icontext = _icontext_bin()
-    # icontext might be "<python> <path>/cli.py"; split it.
+    fbrain = _fbrain_bin()
+    # fbrain might be "<python> <path>/cli.py"; split it.
     program_args_xml = ""
-    parts = icontext.split()
+    parts = fbrain.split()
     for part in parts:
         program_args_xml += f"        <string>{part}</string>\n"
     program_args_xml += "        <string>push</string>\n"
@@ -828,22 +836,22 @@ def _systemctl_user_env() -> dict:
 def _autosync_start_linux(vault: Path) -> int:
     unit_dir = _systemd_unit_dir()
     unit_dir.mkdir(parents=True, exist_ok=True)
-    icontext = _icontext_bin()
+    fbrain = _fbrain_bin()
     service_path = unit_dir / SYSTEMD_SERVICE
     timer_path = unit_dir / SYSTEMD_TIMER
 
     service_path.write_text(
         f"""[Unit]
-Description=iContext autosync (push vault to origin)
+Description=fbrain autosync (push vault to origin)
 
 [Service]
 Type=oneshot
-ExecStart={icontext} push --vault {vault}
+ExecStart={fbrain} push --vault {vault}
 """
     )
     timer_path.write_text(
         f"""[Unit]
-Description=iContext autosync timer
+Description=fbrain autosync timer
 
 [Timer]
 OnBootSec=2min
@@ -875,7 +883,7 @@ WantedBy=timers.target
             _print(_info("Then re-run with the user bus exported:"))
             _print('    XDG_RUNTIME_DIR=/run/user/$(id -u) \\')
             _print('    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus \\')
-            _print('    icontext autosync start --vault ' + str(vault))
+            _print('    fbrain autosync start --vault ' + str(vault))
         return 1
     _print(_ok(f"timer enabled ({SYSTEMD_TIMER}; runs every 60s)"))
     return 0
@@ -924,7 +932,7 @@ def _autosync_status_macos() -> int:
     if list_out.returncode == 0:
         _print(_ok(f"status:    running ({LAUNCHD_LABEL})"))
     else:
-        _print(_warn(f"status:    plist installed but not loaded — run 'icontext autosync start'"))
+        _print(_warn(f"status:    plist installed but not loaded — run 'fbrain autosync start'"))
     if log_path.exists():
         mtime = log_path.stat().st_mtime
         from datetime import datetime
@@ -1018,42 +1026,42 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="icontext",
+        prog="fbrain",
         description="Encrypted AI context vault for Claude Code, Codex, Cursor, OpenCode.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  icontext init                                    # set up vault + skills\n"
-            "  icontext skills list                             # show installed skills\n"
-            "  icontext skills update                           # pull latest skills\n"
-            "  icontext status                                  # show vault state\n"
-            "  icontext search 'fundraising'\n"
+            "  fbrain init                                    # set up vault + skills\n"
+            "  fbrain skills list                             # show installed skills\n"
+            "  fbrain skills update                           # pull latest skills\n"
+            "  fbrain status                                  # show vault state\n"
+            "  fbrain search 'fundraising'\n"
             "\n"
             "headless / fallback (requires GEMINI_API_KEY):\n"
-            "  icontext connect gmail\n"
-            "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf\n"
-            "  icontext sync\n"
+            "  fbrain connect gmail\n"
+            "  fbrain connect linkedin --pdf ~/Downloads/Profile.pdf\n"
+            "  fbrain sync\n"
             "\n"
-            "docs: https://icontext.floom.dev\n"
-            "issues: https://github.com/floomhq/icontext/issues"
+            "docs: https://floom.dev/fbrain\n"
+            "issues: https://github.com/floomhq/fbrain/issues"
         ),
     )
     parser.add_argument(
         "--vault", metavar="PATH",
-        help="path to vault directory (overrides ICONTEXT_VAULT env var; default: ~/context)",
+        help="path to vault directory (overrides FBRAIN_VAULT env var; default: ~/context)",
     )
     parser.add_argument(
-        "--version", action="version", version=f"icontext {__version__}",
+        "--version", action="version", version=f"fbrain {__version__}",
     )
 
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     def _add_vault_arg(p: argparse.ArgumentParser) -> None:
         # default=argparse.SUPPRESS means this won't override the parent parser's --vault
-        # when the user puts --vault before the subcommand (e.g. icontext --vault PATH status)
+        # when the user puts --vault before the subcommand (e.g. fbrain --vault PATH status)
         p.add_argument(
             "--vault", metavar="PATH", default=argparse.SUPPRESS,
-            help="path to vault directory (overrides ICONTEXT_VAULT env var; default: ~/context)",
+            help="path to vault directory (overrides FBRAIN_VAULT env var; default: ~/context)",
         )
 
     # init
@@ -1062,13 +1070,13 @@ def main() -> int:
         help="set up a new vault and install agent skills",
         description=(
             "Create a new context vault at ~/context (or --vault PATH), initialise a git\n"
-            "repo, install icontext skills for Claude Code and Cursor, and insert a snippet\n"
+            "repo, install fbrain skills for Claude Code and Cursor, and insert a snippet\n"
             "into ~/.claude/CLAUDE.md so your agent loads your profile at session start.\n"
             "\n"
             "After init, open Claude Code and say:\n"
-            "  \"Populate my icontext profile\"\n"
+            "  \"Populate my fbrain profile\"\n"
             "\n"
-            "No API keys required. Headless `icontext sync` is also available as a fallback\n"
+            "No API keys required. Headless `fbrain sync` is also available as a fallback\n"
             "(requires GEMINI_API_KEY)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1102,7 +1110,7 @@ def main() -> int:
             "\n"
             "  linkedin — Extract professional profile from a LinkedIn PDF export.\n"
             "             Download: linkedin.com/in/you → More → Save to PDF\n"
-            "             Then: icontext connect linkedin --pdf ~/Downloads/Profile.pdf"
+            "             Then: fbrain connect linkedin --pdf ~/Downloads/Profile.pdf"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1127,11 +1135,11 @@ def main() -> int:
             "Pulls fresh data from connected sources and regenerates the AI profile\n"
             "using Gemini. Requires GEMINI_API_KEY.\n"
             "\n"
-            "  icontext sync              # sync all configured sources\n"
-            "  icontext sync gmail        # sync Gmail only\n"
-            "  icontext sync linkedin     # sync LinkedIn only\n"
+            "  fbrain sync              # sync all configured sources\n"
+            "  fbrain sync gmail        # sync Gmail only\n"
+            "  fbrain sync linkedin     # sync LinkedIn only\n"
             "\n"
-            "For most users: open Claude Code and say \"populate my icontext profile\"\n"
+            "For most users: open Claude Code and say \"populate my fbrain profile\"\n"
             "instead. The agent uses its own tools (Gmail MCP, browser, PDF) and\n"
             "writes the same files."
         ),
@@ -1151,9 +1159,9 @@ def main() -> int:
         description=(
             "Full-text search across the vault index.\n"
             "\n"
-            "  icontext search 'fundraising'\n"
-            "  icontext search 'YC' --tier shareable\n"
-            "  icontext search 'investors' --limit 10\n"
+            "  fbrain search 'fundraising'\n"
+            "  fbrain search 'YC' --tier shareable\n"
+            "  fbrain search 'investors' --limit 10\n"
             "\n"
             "Tiers: shareable (public-safe), internal (private), vault (all files)."
         ),
@@ -1208,15 +1216,15 @@ def main() -> int:
         "skills",
         help="list or update installed skills",
         description=(
-            "Manage the icontext skills installed for Claude Code and Cursor.\n"
+            "Manage the fbrain skills installed for Claude Code and Cursor.\n"
             "\n"
-            "  icontext skills list     # show installed skills and target tools\n"
-            "  icontext skills update   # pull latest skill versions from the icontext repo\n"
+            "  fbrain skills list     # show installed skills and target tools\n"
+            "  fbrain skills update   # pull latest skill versions from the fbrain repo\n"
             "\n"
             "Skills are Markdown instructions that your AI agent reads to populate\n"
             "and refresh your profile. They live at:\n"
-            "  ~/.claude/skills/icontext-*/SKILL.md\n"
-            "  ~/.cursor/rules/icontext-*.mdc"
+            "  ~/.claude/skills/fbrain-*/SKILL.md\n"
+            "  ~/.cursor/rules/fbrain-*.mdc"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1232,7 +1240,7 @@ def main() -> int:
         description=(
             "Stage and commit any local changes in the vault, then push to origin.\n"
             "\n"
-            "Used for multi-device sync: run on device A, then 'icontext pull' on device B.\n"
+            "Used for multi-device sync: run on device A, then 'fbrain pull' on device B.\n"
             "If no origin remote is configured, prints setup instructions for\n"
             "'gh repo create <user>/context --private --source=. --push'."
         ),
@@ -1260,16 +1268,16 @@ def main() -> int:
         "autosync",
         help="manage the background autosync agent (60s push)",
         description=(
-            "Manage a background agent that runs 'icontext push' every 60 seconds.\n"
+            "Manage a background agent that runs 'fbrain push' every 60 seconds.\n"
             "\n"
-            "  icontext autosync start    # install + start the agent\n"
-            "  icontext autosync stop     # stop and remove the agent\n"
-            "  icontext autosync status   # show running state and last sync time\n"
+            "  fbrain autosync start    # install + start the agent\n"
+            "  fbrain autosync stop     # stop and remove the agent\n"
+            "  fbrain autosync status   # show running state and last sync time\n"
             "\n"
             "Implementation: launchd on macOS (~/Library/LaunchAgents/), systemd user\n"
             "timer on Linux (~/.config/systemd/user/). Logs:\n"
-            "  macOS: ~/Library/Logs/icontext.log\n"
-            "  Linux: journalctl --user -u icontext-autosync.service"
+            "  macOS: ~/Library/Logs/fbrain.log\n"
+            "  Linux: journalctl --user -u fbrain-autosync.service"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1305,6 +1313,15 @@ def main() -> int:
         return 1
 
     return args.func(args)
+
+
+def _deprecated_main() -> int:
+    print(
+        "warning: 'icontext' is deprecated, use 'fbrain' instead. "
+        "This shim will be removed in v0.6.0.",
+        file=sys.stderr,
+    )
+    return main()
 
 
 if __name__ == "__main__":

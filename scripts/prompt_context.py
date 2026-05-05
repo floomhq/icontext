@@ -39,17 +39,21 @@ def _int_env(name: str, default: int, minimum: int, maximum: int) -> int:
 
 def main() -> int:
     payload = json.loads(sys.stdin.read() or "{}")
-    repo = Path(os.environ.get("ICONTEXT_VAULT", str(Path("~/context").expanduser())))
-    max_tier = os.environ.get("ICONTEXT_MAX_TIER", DEFAULT_MAX_TIER).strip().lower() or DEFAULT_MAX_TIER
-    char_budget = _int_env("ICONTEXT_PROMPT_CHAR_BUDGET", DEFAULT_CHAR_BUDGET, 0, 6000)
-    limit = _int_env("ICONTEXT_PROMPT_LIMIT", DEFAULT_LIMIT, 1, 10)
+    repo = Path(os.environ.get("FBRAIN_VAULT") or os.environ.get("ICONTEXT_VAULT", str(Path("~/context").expanduser())))
+    max_tier = (os.environ.get("FBRAIN_MAX_TIER") or os.environ.get("ICONTEXT_MAX_TIER", DEFAULT_MAX_TIER)).strip().lower() or DEFAULT_MAX_TIER
+    char_budget = _int_env("FBRAIN_PROMPT_CHAR_BUDGET", DEFAULT_CHAR_BUDGET, 0, 6000)
+    if "FBRAIN_PROMPT_CHAR_BUDGET" not in os.environ:
+        char_budget = _int_env("ICONTEXT_PROMPT_CHAR_BUDGET", DEFAULT_CHAR_BUDGET, 0, 6000)
+    limit = _int_env("FBRAIN_PROMPT_LIMIT", DEFAULT_LIMIT, 1, 10)
+    if "FBRAIN_PROMPT_LIMIT" not in os.environ:
+        limit = _int_env("ICONTEXT_PROMPT_LIMIT", DEFAULT_LIMIT, 1, 10)
     prompt = _prompt(payload)
     context = ""
 
     if prompt and repo.exists() and char_budget:
         results = search(repo, prompt, limit=limit, max_tier=max_tier)
         if results:
-            lines = ["Relevant context from icontext:"]
+            lines = ["Relevant context from fbrain:"]
             used_chars = len(lines[0])
             seen_paths: set[str] = set()
             for result in results:

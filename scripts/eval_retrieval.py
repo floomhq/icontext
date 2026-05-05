@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate icontext retrieval against explicit query/path cases."""
+"""Evaluate fbrain retrieval against explicit query/path cases."""
 
 from __future__ import annotations
 
