@@ -37,7 +37,7 @@ if [ "${#MISSING_DEPS[@]}" -gt 0 ]; then
         echo "  sudo apt install git python3"
     fi
     echo ""
-    echo "Then re-run: curl -fsSL https://icontext.dev/install | bash"
+    echo "Then re-run: curl -fsSL https://icontext.floom.dev/install | bash"
     exit 1
 fi
 # -----------------------------------------------------------------------------
