@@ -1023,7 +1023,7 @@ def main() -> int:
             "  icontext connect linkedin --pdf ~/Downloads/Profile.pdf\n"
             "  icontext sync\n"
             "\n"
-            "docs: https://icontext.dev\n"
+            "docs: https://icontext.floom.dev\n"
             "issues: https://github.com/floomhq/icontext/issues"
         ),
     )

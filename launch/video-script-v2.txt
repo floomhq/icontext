@@ -59,13 +59,13 @@ Three quick visual cards or screen recordings. Each one beat.
 
 
 [1:05 — 1:15]  CTA
-Visual: Install command big and clean. icontext.dev URL.
+Visual: Install command big and clean. icontext.floom.dev URL.
 
   "icontext. Open source.
 
   Two commands. No API key. Your AI never forgets you again.
 
-  icontext.dev"
+  icontext.floom.dev"
 
 (end on the URL on screen, hold 2 seconds)
 

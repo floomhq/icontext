@@ -25,7 +25,7 @@ Gemini-based headless sync is also available (`pip install icontext[sync]`) for 
 
 Install:
 ```
-curl -fsSL icontext.dev/install | bash
+curl -fsSL icontext.floom.dev/install | bash
 icontext init
 ```
 Then: open Claude Code and say "Populate my icontext profile."
@@ -85,7 +85,7 @@ icontext is a folder and a set of skills.
 
 Two commands:
 ```bash
-curl -fsSL icontext.dev/install | bash
+curl -fsSL icontext.floom.dev/install | bash
 icontext init
 ```
 
@@ -186,7 +186,7 @@ The whole thing runs locally. No server, no cloud sync. The context folder is sp
 
 Works with Claude Code, Cursor, and Codex. Two install commands:
 
-curl -fsSL icontext.dev/install | bash
+curl -fsSL icontext.floom.dev/install | bash
 icontext init
 
 Open source, on GitHub: https://github.com/floomhq/icontext
@@ -218,7 +218,7 @@ Also works with Cursor (installs into `.cursor/rules/`) and Codex (via optional 
 
 Install:
 ```
-curl -fsSL icontext.dev/install | bash
+curl -fsSL icontext.floom.dev/install | bash
 icontext init
 ```
 
