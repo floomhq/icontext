@@ -145,6 +145,13 @@ generated: YYYY-MM-DD
 
 Strict 200-word max. No corporate filler. No "passionate about", no "pioneering". Plain second person. The user's actual voice from their actual data.
 
+## Changelog
+
+After writing all four profile files, append one line to `~/context/internal/changes.md` (create the file if it does not exist):
+```
+YYYY-MM-DD: populate — source: <source used>, <N> relationships, <M> projects
+```
+
 ## Voice rules
 
 - Plain second person ("you are", "you work on")
@@ -163,6 +170,14 @@ If `internal/profile/user.md` exists:
 - If 7-30 days old: ask the user "your profile is N days old, refresh?"
 - If >30 days old: refresh automatically.
 
+## Saving facts that surface during synthesis
+
+If during synthesis you encounter a durable fact that doesn't belong in the
+profile (e.g. the user mentions their company's Delaware registration, an
+attorney contact, a funding round closing date), use the `icontext-write-fact`
+skill to route it to the correct vault location. Do not dump it into the
+profile files or a log file.
+
 ## Output
 
 After writing, summarize for the user:
@@ -171,3 +186,12 @@ After writing, summarize for the user:
 - Number of relationships, projects, topics extracted
 - File paths written
 - Suggested next: "Open a new Claude Code session and ask me what I know about you."
+
+## Injecting into CLAUDE.md
+
+After running this skill, paste the following block into your CLAUDE.md to enable brain-first lookups:
+
+```
+## fbrain: brain-first lookup
+Before searching the web or calling external APIs for information about a person, company, or project, check ~/context/internal/profile/relationships.md and ~/context/internal/profile/projects.md first. If a relevant entry exists, use it as the primary source and supplement from external sources only if the entry is stale or incomplete.
+```

@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +398,12 @@ def _install_skills() -> tuple[int, list[str]]:
         msgs.append(_warn("skills/ source dir not found — skipping skill install"))
         return 0, msgs
 
-    skill_names = ["icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"]
+    skill_names = [
+        "icontext-populate-profile",
+        "icontext-refresh-profile",
+        "icontext-share-card",
+        "icontext-write-fact",
+    ]
     claude_skills_dir = Path("~/.claude/skills").expanduser()
     cursor_rules_dir = Path("~/.cursor/rules").expanduser()
     claude_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -450,7 +455,8 @@ def _install_claude_md_snippet(vault: Path) -> None:
         "Available skills:\n"
         "- icontext-populate-profile  (build profile from Gmail/LinkedIn/chat)\n"
         "- icontext-refresh-profile   (update stale profile)\n"
-        "- icontext-share-card        (regenerate shareable summary)\n\n"
+        "- icontext-share-card        (regenerate shareable summary)\n"
+        "- icontext-write-fact        (route a fact to the correct vault location)\n\n"
         "Multi-device sync: at session start, run `icontext pull` to fetch any updates\n"
         "from other machines. The user-prompt-submit hook does this automatically if a\n"
         "remote is configured.\n"
@@ -518,7 +524,12 @@ def cmd_skills(args: argparse.Namespace) -> int:
     action = getattr(args, "skills_action", None) or "list"
     claude_skills_dir = Path("~/.claude/skills").expanduser()
     cursor_rules_dir = Path("~/.cursor/rules").expanduser()
-    skill_names = ["icontext-populate-profile", "icontext-refresh-profile", "icontext-share-card"]
+    skill_names = [
+        "icontext-populate-profile",
+        "icontext-refresh-profile",
+        "icontext-share-card",
+        "icontext-write-fact",
+    ]
 
     if action == "list":
         _header("skills")
