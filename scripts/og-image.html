@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fbrain OG Image</title>
+  <style>
+    :root {
+      --bg: #f6f7f1;
+      --ink: #151515;
+      --muted: #5f6268;
+      --quiet: #858992;
+      --accent: #5257ff;
+      --green: #10b981;
+      --card: #ffffff;
+      --line: #deded8;
+      --rule: #ecece8;
+      --dot-red: #efb8ad;
+      --dot-yellow: #edcc9f;
+      --dot-green: #b8d6bd;
+      --serif: "Iowan Old Style", Charter, ui-serif, Georgia, serif;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 1280px;
+      height: 640px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    .canvas {
+      position: relative;
+      width: 1280px;
+      height: 640px;
+      padding: 66px 72px 64px;
+      background: var(--bg);
+    }
+
+    .eyebrow {
+      margin: 0 0 25px;
+      color: var(--accent);
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 5.1px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 1080px;
+      font-family: var(--serif);
+      font-size: 70px;
+      line-height: 0.95;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 41px 0 12px;
+      color: var(--muted);
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 530px 582px;
+      gap: 24px;
+      margin-top: 14px;
+    }
+
+    .card {
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .folder-card {
+      height: 272px;
+    }
+
+    .browser-bar {
+      height: 39px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--rule);
+      color: var(--quiet);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+    }
+
+    .dot.red { background: var(--dot-red); }
+    .dot.yellow { background: var(--dot-yellow); }
+    .dot.green { background: var(--dot-green); margin-right: 7px; }
+
+    .tree {
+      padding: 20px 24px 22px;
+      font-size: 14px;
+      line-height: 1.62;
+      color: var(--muted);
+    }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      height: 26px;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .tree-row.root {
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .tree-row.dir {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .tree-row.child {
+      padding-left: 24px;
+    }
+
+    .tree-row.file {
+      padding-left: 43px;
+      font-weight: 400;
+    }
+
+    .folder-icon,
+    .file-icon {
+      position: relative;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+
+    .folder-icon {
+      width: 14px;
+      height: 11px;
+      background: var(--ink);
+      border-radius: 1px 1px 2px 2px;
+    }
+
+    .folder-icon::before {
+      content: "";
+      position: absolute;
+      top: -3px;
+      left: 0;
+      width: 8px;
+      height: 4px;
+      background: var(--ink);
+      border-radius: 2px 2px 0 0;
+    }
+
+    .file-icon {
+      width: 11px;
+      height: 15px;
+      border: 1.4px solid var(--quiet);
+      border-radius: 1px;
+      background: #fff;
+    }
+
+    .read-card {
+      height: 272px;
+      padding: 27px 26px 21px;
+    }
+
+    .read-title {
+      margin: 0 0 18px;
+      color: var(--quiet);
+      font-size: 12px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: 5px;
+    }
+
+    .reader {
+      height: 48px;
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid var(--rule);
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 560;
+    }
+
+    .reader-icon {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+    }
+
+    .ai-icon {
+      font-size: 19px;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .cube-icon svg,
+    .codex-icon svg,
+    .code-icon svg {
+      display: block;
+      width: 22px;
+      height: 22px;
+    }
+
+    .footer {
+      margin: 16px 0 0;
+      color: #7e8087;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 500;
+      letter-spacing: -0.1px;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas" aria-label="fbrain social preview image">
+    <p class="eyebrow">ONE FOLDER · EVERY AGENT</p>
+    <h1>Your AI agents now share a brain.</h1>
+    <p class="subtitle">Local. Encrypted. Open source.</p>
+
+    <section class="cards" aria-label="fbrain context and readers">
+      <div class="card folder-card" aria-label="context folder tree">
+        <div class="browser-bar">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+          <span>~/context</span>
+        </div>
+
+        <div class="tree">
+          <div class="tree-row root"><span class="folder-icon"></span><span>~/context/</span></div>
+          <div class="tree-row dir child"><span class="folder-icon"></span><span>internal/profile/</span></div>
+          <div class="tree-row file"><span class="file-icon"></span><span>user.md</span></div>
+          <div class="tree-row file"><span class="file-icon"></span><span>relationships.md</span></div>
+          <div class="tree-row file"><span class="file-icon"></span><span>projects.md</span></div>
+          <div class="tree-row dir child"><span class="folder-icon"></span><span>shareable/</span></div>
+        </div>
+      </div>
+
+      <div class="card read-card" aria-label="agents that read fbrain context">
+        <p class="read-title">READ BY</p>
+
+        <div class="reader">
+          <span class="reader-icon ai-icon">AI</span>
+          <span>Claude Code</span>
+        </div>
+
+        <div class="reader">
+          <span class="reader-icon cube-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 2.5 21 7.2v9.6l-9 4.7-9-4.7V7.2l9-4.7Z" fill="#5f6268"/>
+              <path d="M12 12.1 21 7.2 12 2.5 3 7.2l9 4.9Z" fill="#6d7077"/>
+              <path d="M12 12.1v9.4l9-4.7V7.2l-9 4.9Z" fill="#4f5359"/>
+              <path d="M12 12.1 3 7.2v9.6l9 4.7v-9.4Z" fill="#5a5e65"/>
+            </svg>
+          </span>
+          <span>Cursor</span>
+        </div>
+
+        <div class="reader">
+          <span class="reader-icon codex-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5f6268" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3.5c2 0 3.6 1.1 4.5 2.7 1.9.2 3.4 1.8 3.4 3.8 0 1-.4 1.9-1 2.6.4 1.9-.6 3.9-2.4 4.8-.8 1.8-2.5 3.1-4.6 3.1-1 0-2-.3-2.8-.9-1.9.2-3.7-.9-4.5-2.6-1.7-.8-2.7-2.5-2.5-4.4-.7-.7-1.1-1.7-1.1-2.8 0-2 1.5-3.7 3.5-3.9.9-1.5 2.5-2.4 4.4-2.4Z"/>
+              <path d="M8.7 4.2 15.8 8v8.1l-7.1 3.7"/>
+              <path d="M4.5 6.1 12 10l7.5-3.9"/>
+              <path d="M4.5 17.1 12 13l7.2 3.9"/>
+              <path d="M12 10v3"/>
+            </svg>
+          </span>
+          <span>Codex</span>
+        </div>
+
+        <div class="reader">
+          <span class="reader-icon code-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect x="1.8" y="3.8" width="20.4" height="16.4" rx="3" fill="#fff" stroke="#e1e1dc" stroke-width="1.4"/>
+              <path d="m9.4 8.2-4.1 3.6 4.1 3.6" stroke="#6b6f76" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="m14.6 8.2 4.1 3.6-4.1 3.6" stroke="#6b6f76" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="m13.2 7.3-2.4 9.4" stroke="#6b6f76" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span>OpenCode</span>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">github.com/floomhq/fbrain</p>
+  </main>
+</body>
+</html>
