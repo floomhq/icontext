@@ -33,6 +33,35 @@ That's it. Your AI now has persistent memory.
 
 fbrain is intentionally minimal infrastructure. Three pieces:
 
+This diagram shows the default profile-building flow: agents try local sources in order, synthesize context inside the current AI session, and write plain Markdown into the shared vault. Claude Code, Cursor, Codex, and OpenCode then read the same three-tier context folder without needing a hosted fbrain service.
+
+```mermaid
+flowchart TD
+  Gmail["Gmail (MCP)"] -. fallback .-> LinkedIn["LinkedIn (browser/PDF)"]
+  LinkedIn -. fallback .-> SelfDescribe["User self-describe"]
+  Gmail --> Evidence["Selected evidence"]
+  LinkedIn --> Evidence
+  SelfDescribe --> Evidence
+  Evidence --> Session["Local LLM session<br/>no external API needed"]
+
+  Session --> Shareable["shareable/<br/>context-card.md"]
+  Session --> Internal["internal/<br/>profile markdown"]
+  Session --> Vault["vault/<br/>git-crypt encrypted"]
+
+  Shareable --> Claude["Claude Code"]
+  Internal --> Claude
+  Vault --> Claude
+  Shareable --> Cursor["Cursor"]
+  Internal --> Cursor
+  Vault --> Cursor
+  Shareable --> Codex["Codex"]
+  Internal --> Codex
+  Vault --> Codex
+  Shareable --> OpenCode["OpenCode"]
+  Internal --> OpenCode
+  Vault --> OpenCode
+```
+
 ### 1. The vault — a structured folder
 
 Plain Markdown files in a tiered folder structure:
