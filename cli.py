@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 CANONICAL_SKILLS = [
     "fbrain-populate-profile",

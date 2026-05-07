@@ -4,6 +4,17 @@ All notable changes to fbrain will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-05-06
+
+### Changed
+- `fbrain-write-fact`: expanded trigger phrases. Now matches natural-language updates like "lets update fbrain", "update X's timeline", "extend X's record", "add to my legal record", and the legacy "icontext" aliases.
+- `fbrain-write-fact`: new top-level decision branch for **extending an existing structured doc** (TIMELINE.md, status.md, profile.md). Tells the agent to find the canonical doc and append in place instead of creating a parallel log entry.
+- `fbrain-write-fact`: explicit anti-pattern callout against dual-writing the same content to both a log file AND a structured doc.
+- `fbrain-write-fact`: worked examples added for the most common update patterns (cursor-fraud TIMELINE, Finom log entry, Floom Inc registration, team status update).
+
+### Why
+A Kimi session received "lets update icontext?" and did not pattern-match the skill description. It ended up dual-writing the same content to both a log file AND TIMELINE.md. This release fixes both gaps.
+
 ## [0.5.0] - 2026-05-06
 
 ### Changed
